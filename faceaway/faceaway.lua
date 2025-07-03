@@ -24,7 +24,7 @@ windower.register_event('unload', function()
     windower.send_command('unbind ' .. settings.keybind)
 end)
 
--- Turn 180 degrees from current facing (simple version)
+-- Turn 180 degrees from current facing 
 function turn_around()
     local player = windower.ffxi.get_mob_by_target('me')
     if not player or not player.facing then
