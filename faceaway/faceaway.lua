@@ -44,10 +44,8 @@ function toggle_facing()
 
     if angle_diff < (math.pi / 6) then
         turn_angle = (angle_to_target + math.pi) % (2 * math.pi)
-        log('Turning away from target.')
     else
         turn_angle = angle_to_target
-        log('Turning toward target.')
     end
 
     windower.ffxi.run(false)
