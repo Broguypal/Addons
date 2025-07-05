@@ -13,9 +13,12 @@ local defaults = {
     display_mode = 'always',
 }
 
-local settings = config.load(defaults)
-local display_mode = settings.display_mode
+local settings
+local display_mode
 local player_status = 'Idle'
+
+local cast_box
+local tp_box
 
 local max_entries = 3
 local expire_seconds = 30
@@ -25,30 +28,8 @@ local default_tp_msg = 'TPTracker ready...'
 -- === STATE ===
 local cast_log = {}
 local tp_log = {}
-
--- === SPELL CASTING BOX ===
-local cast_box_config = {
-    pos = settings.cast_box_pos,
-    padding = 4,
-    text = {font = 'Consolas', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
-    bg = { red = 30, green = 50, blue = 100, alpha = 180 },  
-    flags = { draggable = true },
-}
-
-local cast_box = texts.new('', cast_box_config)
-cast_box:show()
-
--- === TP MOVE BOX ===
-local tp_box_config = {
-    pos = settings.tp_box_pos,
-    padding = 4,
-    text = {font = 'Consolas', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
-    bg = { red = 100, green = 90, blue = 40, alpha = 180 },  
-    flags = { draggable = true },
-}
-
-local tp_box = texts.new('', tp_box_config)
-tp_box:show()
+local player_ready = false
+local initialized = false
 
 -- === UTILITY ===
 local function now()
@@ -74,6 +55,11 @@ local function purge_expired(buffer)
 end
 
 local function update_box(box, buffer, default_text)
+    if not windower.ffxi.get_player() then
+        box:hide()
+        return
+    end
+
     purge_expired(buffer)
 
     if display_mode == 'combat' and player_status ~= 'Engaged' then
@@ -102,6 +88,18 @@ end
 
 function string:trim()
     return self:match('^%s*(.-)%s*$')
+end
+
+-- === SETTINGS SAVE HELPER ===
+local function save_settings()
+    if settings and cast_box and tp_box then
+        local c_x, c_y = cast_box:pos()
+        local t_x, t_y = tp_box:pos()
+        settings.cast_box_pos = { x = c_x, y = c_y }
+        settings.tp_box_pos   = { x = t_x, y = t_y }
+        settings.display_mode = display_mode or settings.display_mode
+        config.save(settings)
+    end
 end
 
 -- === MAIN LOGIC ===
@@ -159,35 +157,57 @@ windower.register_event('status change', function(new, old)
     end
 end)
 
--- === PERIODIC CLEANUP ===
+-- === LOAD AND PLAYER LOGIN DETECTION ===
 windower.register_event('prerender', function()
-    update_box(cast_box, cast_log, default_cast_msg)
-    update_box(tp_box, tp_log, default_tp_msg)
+    local player = windower.ffxi.get_player()
+
+    if player and not player_ready then
+        player_ready = true
+
+        if not initialized then
+            settings = config.load(defaults)
+            display_mode = settings.display_mode or 'always'
+
+            local cast_box_config = {
+                pos = settings.cast_box_pos,
+                padding = 4,
+                text = {font = 'Consolas', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
+                bg = { red = 30, green = 50, blue = 100, alpha = 180 },
+                flags = { draggable = true },
+            }
+            cast_box = texts.new('', cast_box_config)
+            cast_box:show()
+
+            local tp_box_config = {
+                pos = settings.tp_box_pos,
+                padding = 4,
+                text = {font = 'Consolas', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
+                bg = { red = 100, green = 90, blue = 40, alpha = 180 },
+                flags = { draggable = true },
+            }
+            tp_box = texts.new('', tp_box_config)
+            tp_box:show()
+
+            update_box(cast_box, cast_log, default_cast_msg)
+            update_box(tp_box, tp_log, default_tp_msg)
+
+            initialized = true
+        end
+    elseif not player and player_ready then
+        player_ready = false
+    end
+
+    if initialized then
+        update_box(cast_box, cast_log, default_cast_msg)
+        update_box(tp_box, tp_log, default_tp_msg)
+    end
 end)
 
--- === LOAD EVENT ===
-windower.register_event('load', function()
-    cast_log = {}
-    tp_log = {}
-    update_box(cast_box, cast_log, default_cast_msg)
-    update_box(tp_box, tp_log, default_tp_msg)
-end)
+-- === SAVE ON UNLOAD / LOGOUT ===
+windower.register_event('unload', save_settings)
+windower.register_event('logout', save_settings)
 
--- === UNLOAD EVENT: Save current positions and mode ===
-windower.register_event('unload', function()
-    local c_x, c_y = cast_box:pos()
-    local t_x, t_y = tp_box:pos()
-
-    settings.cast_box_pos.x = c_x
-    settings.cast_box_pos.y = c_y
-    settings.tp_box_pos.x = t_x
-    settings.tp_box_pos.y = t_y
-    settings.display_mode = display_mode
-
-    config.save(settings)
-end)
-
--- === CUSTOM COMMAND HANDLER (fixed with full fallback) ===
+-- === CUSTOM COMMAND HANDLER ===
 windower.register_event('addon command', function(...)
     local args = {...}
     local cmd = args[1] and args[1]:lower()
@@ -209,7 +229,7 @@ windower.register_event('addon command', function(...)
     else
         windower.add_to_chat(123, '[TargetTracker] Unknown command: "' .. tostring(cmd) .. '"')
         windower.add_to_chat(123, 'Usage: //tart box [always | combat | action]')
-		windower.add_to_chat(123, '  always  - Always show the boxes (default)')
+        windower.add_to_chat(123, '  always  - Always show the boxes (default)')
         windower.add_to_chat(123, '  combat  - Only show boxes while you are in combat')
         windower.add_to_chat(123, '  action  - Only show boxes when an action is detected')
     end
