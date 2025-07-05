@@ -12,6 +12,4 @@ In-Game commands: (//tart or //targettracker)
 
 
 NOTE: This version uses incoming text events and is not compatible with chatfilter addons such as Battlemod. If Battlemod is enabled, CastTracker will fail to detect actions based on how Battlemod modifies spell and tp actions.
-For this to work with the native FFXI client, Battle messages must be allowed to be displayed. Additionally, you must not have the following chat filters on:
-a) Magic Actions
-b) TP Moves / Special abilities
+For this to work with the native FFXI client, Battle messages must be allowed to be displayed. Additionally, you must not have special action chat filters on.
