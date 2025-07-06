@@ -42,7 +42,7 @@ end
 
 local function format_line(line)
     local time_str = os.date('%M:%S', line.timestamp)
-    return ('\\cs(255,255,0)%s \\cs(100,100,100)[%s]\\cr'):format(line.text, time_str)
+    return ('%s \\cs(100,100,100)[%s]\\cr'):format(line.text, time_str)
 end
 
 local function purge_expired(buffer)
@@ -114,30 +114,44 @@ windower.register_event('incoming text', function(original, modified, mode)
     local target_name = sanitize_text(target.name:lower())
 
     -- SPELL CASTING
-    if mode == 52 then
-        local caster, spell = clean:match('^(.-) starts casting (.-)%.?$')
-        if caster and spell then
-            caster = sanitize_text(caster)
-            spell = sanitize_text(spell):gsub('%s*%p?%d+$', '')
-            if caster:lower():gsub('^the ', '') == target_name then
-                table.insert(cast_log, 1, { text = caster .. ' starts casting ' .. spell, timestamp = now() })
-                while #cast_log > max_entries do table.remove(cast_log) end
-                update_box(cast_box, cast_log, default_cast_msg)
-            end
-        end
-    end
+	if mode == 52 then
+		local caster, spell = clean:match('^(.-) starts casting (.-)%.?$')
+		if caster and spell then
+			caster = sanitize_text(caster)
+			spell = sanitize_text(spell):gsub('%s*%p?%d+$', '')
+			if caster:lower():gsub('^the ', '') == target_name then
+				local spell_name, target_part = spell:match('^(.-)( on .*)$')
+				if not spell_name then
+					spell_name = spell
+					target_part = ''
+				end
+				local colored_spell = '\\cs(100,255,255)' .. spell_name .. '\\cr' .. target_part
+				local text = caster .. ' starts casting ' .. colored_spell
+				table.insert(cast_log, 1, { text = text, timestamp = now() })
+				while #cast_log > max_entries do table.remove(cast_log) end
+				update_box(cast_box, cast_log, default_cast_msg)
+			end
+		end
+	end
 
     -- TP MOVE
-    local caster, move = clean:match('^(.-) readies (.-)%.?$')
-    if caster and move then
-        caster = sanitize_text(caster)
-        move = sanitize_text(move):gsub('%s*%p?%d+$', '')
-        if caster:lower():gsub('^the ', '') == target_name then
-            table.insert(tp_log, 1, { text = caster .. ' readies ' .. move, timestamp = now() })
-            while #tp_log > max_entries do table.remove(tp_log) end
-            update_box(tp_box, tp_log, default_tp_msg)
-        end
-    end
+	local caster, move = clean:match('^(.-) readies (.-)%.?$')
+	if caster and move then
+		caster = sanitize_text(caster)
+		move = sanitize_text(move):gsub('%s*%p?%d+$', '')
+		if caster:lower():gsub('^the ', '') == target_name then
+			local move_name, target_part = move:match('^(.-)( on .*)$')
+			if not move_name then
+				move_name = move
+				target_part = ''
+			end
+			local colored_move = '\\cs(255,215,0)' .. move_name .. '\\cr' .. target_part
+			local text = caster .. ' readies ' .. colored_move
+			table.insert(tp_log, 1, { text = text, timestamp = now() })
+			while #tp_log > max_entries do table.remove(tp_log) end
+			update_box(tp_box, tp_log, default_tp_msg)
+		end
+	end
 end)
 
 -- === ZONE CHANGE: Clear logs ===
@@ -171,7 +185,7 @@ windower.register_event('prerender', function()
             local cast_box_config = {
                 pos = settings.cast_box_pos,
                 padding = 4,
-                text = {font = 'Consolas', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
+                text = {font = 'Calibri', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
                 bg = { red = 30, green = 50, blue = 100, alpha = 180 },
                 flags = { draggable = true },
             }
@@ -181,7 +195,7 @@ windower.register_event('prerender', function()
             local tp_box_config = {
                 pos = settings.tp_box_pos,
                 padding = 4,
-                text = {font = 'Consolas', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
+                text = {font = 'Calibri', size = 10, stroke = { width = 1, alpha = 255 }, color = { r = 255, g = 255, b = 255 },},
                 bg = { red = 100, green = 90, blue = 40, alpha = 180 },
                 flags = { draggable = true },
             }
