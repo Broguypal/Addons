@@ -1,21 +1,22 @@
 -- CondensedDamage
 -- Author: Broguypal
 
--- WARNING:
--- This addon injects condensed damage messages using specific chat modes:
--- - Mode 151: Used for player, trust, and NPC auto/ranged attacks.
---   • This is the same mode used by NPC dialogue (e.g., key item messages, shop text).
---   • You MUST keep "NPC dialogue" enabled in your log to see these messages.
---
--- - Mode 122: Used for Enspell damage only.
---   • This is part of the game's "Battle messages" filter.
---   • You MUST have "Battle Messages" enabled in your log
---     to see Enspell damage lines.
-
 _addon.name     = 'CondensedDamage'
 _addon.author   = 'Broguypal'
-_addon.version  = '2.5-clean'
+_addon.version  = '3.0-filters'
 _addon.commands = {'cdd', 'condenseddamage'}
+
+local config = require('config')
+local default_settings = {
+    filters = {
+        show_self = true,
+        show_party = true,
+        show_alliance = true,
+        show_trusts = true,
+        show_other_players = false,
+    }
+}
+local settings = config.load(default_settings)
 
 local condensed_categories = {
     [1]  = true, -- Melee
@@ -30,16 +31,35 @@ local function get_name(id)
     return mob and mob.name or ('Unknown(' .. tostring(id) .. ')')
 end
 
-local function inject_message(text, actor_id)
-    local actor = windower.ffxi.get_mob_by_id(actor_id)
+local function should_show(actor)
+    if not actor then return false end
+    local me = windower.ffxi.get_player()
+    if not me then return false end
 
-    -- Enspell lines get chat mode 122 (light blue)
-    if text:find("Enspell") then
-        windower.add_to_chat(122, text)
-        return
+    if actor.id == me.id then
+        return settings.filters.show_self
+    elseif actor.in_party then
+        return settings.filters.show_party
+    elseif actor.in_alliance then
+        return settings.filters.show_alliance
+    elseif actor.is_npc and not actor.is_monster then
+        return settings.filters.show_trusts
+    elseif actor.is_player then
+        return settings.filters.show_other_players
     end
 
-    windower.add_to_chat(151, text)
+    return false
+end
+
+local function inject_message(text, actor_id)
+    local actor = windower.ffxi.get_mob_by_id(actor_id)
+    if not should_show(actor) then return end
+
+    if text:find("Enspell") then
+        windower.add_to_chat(122, text)
+    else
+        windower.add_to_chat(151, text)
+    end
 end
 
 local function parse_action(act)
@@ -91,14 +111,11 @@ local function parse_action(act)
     return results
 end
 
--- Condense only if the actor is not a monster
 windower.register_event('action', function(act)
     if not condensed_categories[act.category] then return end
 
     local actor = windower.ffxi.get_mob_by_id(act.actor_id)
-    if actor and actor.is_npc and not actor.is_player then
-        return -- Monster attack: skip condensing
-    end
+    if not should_show(actor) then return end
 
     local results = parse_action(act)
     for _, entry in ipairs(results) do
@@ -109,27 +126,22 @@ windower.register_event('action', function(act)
     end
 end)
 
--- Suppress only messages where the attacker is not a monster
 windower.register_event('incoming text', function(original)
-    local player_name = windower.ffxi.get_player().name
+    local me = windower.ffxi.get_player()
+    if not me then return end
 
-    -- Suppress messages caused by player/NPC/trust attacks only
     local suppress = false
 
-    -- Match your own actions
-    if original:match('^' .. player_name .. ' hits [%w%s]+ for %d+') or
+    if original:match('^' .. me.name .. ' hits [%w%s]+ for %d+') or
        original:match('^Additional effect:') or
-       original:match('^' .. player_name .. ' scores a critical hit!') then
+       original:match('^' .. me.name .. ' scores a critical hit!') then
         suppress = true
     end
 
-    -- Match other players/trusts/NPCs but not monsters
     if original:match('^[^%s]+ hits [^%s]+ for %d+') then
         local actor = original:match('^([^%s]+) hits')
         local mob = actor and windower.ffxi.get_mob_by_name(actor)
-        if mob and mob.is_npc and not mob.is_player then
-            suppress = false
-        else
+        if mob and should_show(mob) then
             suppress = true
         end
     end
@@ -137,6 +149,72 @@ windower.register_event('incoming text', function(original)
     if suppress then return true end
 end)
 
+windower.register_event('unload', function() config.save(settings) end)
+windower.register_event('logout', function() config.save(settings) end)
+
 windower.register_event('load', function()
-    windower.add_to_chat(151, '[CondensedDamage] Loaded. Monster damage is native. Only player/trust/NPC attacker damage is condensed/suppressed.')
+    windower.add_to_chat(151, '[CondensedDamage] Loaded with filters. Edit settings.xml to control visible sources.')
+end)
+
+
+
+windower.register_event('addon command', function(cmd, arg)
+    if cmd == 'help' then
+
+    windower.add_to_chat(151, '[CondensedDamage Commands]')
+    windower.add_to_chat(151, '  //cdd toggle self       - Show/hide your own damage')
+    windower.add_to_chat(151, '  //cdd toggle party      - Show/hide party members')
+    windower.add_to_chat(151, '  //cdd toggle alliance   - Show/hide alliance members')
+    windower.add_to_chat(151, '  //cdd toggle trusts     - Show/hide trusts/NPCs')
+    windower.add_to_chat(151, '  //cdd toggle others     - Show/hide other players')
+    windower.add_to_chat(151, '  //cdd status            - Show current filter settings')
+    windower.add_to_chat(151, '  //cdd help              - Show this help message')
+
+        return
+    end
+    cmd = cmd and cmd:lower()
+    arg = arg and arg:lower()
+
+    if cmd == 'toggle' and arg then
+        if arg == 'self' then
+            settings.filters.show_self = not settings.filters.show_self
+            windower.add_to_chat(151, 'Show Self Damage: ' .. tostring(settings.filters.show_self))
+        elseif arg == 'party' then
+            settings.filters.show_party = not settings.filters.show_party
+            windower.add_to_chat(151, 'Show Party Damage: ' .. tostring(settings.filters.show_party))
+        elseif arg == 'alliance' then
+            settings.filters.show_alliance = not settings.filters.show_alliance
+            windower.add_to_chat(151, 'Show Alliance Damage: ' .. tostring(settings.filters.show_alliance))
+        elseif arg == 'trusts' then
+            settings.filters.show_trusts = not settings.filters.show_trusts
+            windower.add_to_chat(151, 'Show Trust/NPC Damage: ' .. tostring(settings.filters.show_trusts))
+        elseif arg == 'others' then
+            settings.filters.show_other_players = not settings.filters.show_other_players
+            windower.add_to_chat(151, 'Show Other Players Damage: ' .. tostring(settings.filters.show_other_players))
+        else
+            windower.add_to_chat(123, 'Usage: //cdd toggle [self | party | alliance | trusts | others]')
+        end
+        config.save(settings)
+    elseif cmd == 'status' then
+        windower.add_to_chat(151, '[CondensedDamage Filter Status]')
+        windower.add_to_chat(151, '  Self:     ' .. tostring(settings.filters.show_self))
+        windower.add_to_chat(151, '  Party:    ' .. tostring(settings.filters.show_party))
+        windower.add_to_chat(151, '  Alliance: ' .. tostring(settings.filters.show_alliance))
+        windower.add_to_chat(151, '  Trusts:   ' .. tostring(settings.filters.show_trusts))
+        windower.add_to_chat(151, '  Others:   ' .. tostring(settings.filters.show_other_players))
+    else
+        windower.add_to_chat(123, 'Invalid command.')
+
+    windower.add_to_chat(151, '[CondensedDamage Commands]')
+    windower.add_to_chat(151, '  //cdd toggle self       - Show/hide your own damage')
+    windower.add_to_chat(151, '  //cdd toggle party      - Show/hide party members')
+    windower.add_to_chat(151, '  //cdd toggle alliance   - Show/hide alliance members')
+    windower.add_to_chat(151, '  //cdd toggle trusts     - Show/hide trusts/NPCs')
+    windower.add_to_chat(151, '  //cdd toggle others     - Show/hide other players')
+    windower.add_to_chat(151, '  //cdd status            - Show current filter settings')
+    windower.add_to_chat(151, '  //cdd help              - Show this help message')
+
+        windower.add_to_chat(123, '  //cdd toggle [self | party | alliance | trusts | others]')
+        windower.add_to_chat(123, '  //cdd status')
+    end
 end)

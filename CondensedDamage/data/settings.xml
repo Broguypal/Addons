@@ -1,0 +1,12 @@
+<?xml version="1.1" ?>
+<settings>
+    <global>
+        <filters>
+            <show_alliance>true</show_alliance>
+            <show_other_players>false</show_other_players>
+            <show_party>true</show_party>
+            <show_self>true</show_self>
+            <show_trusts>true</show_trusts>
+        </filters>
+    </global>
+</settings>
