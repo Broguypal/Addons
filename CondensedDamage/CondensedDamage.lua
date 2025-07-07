@@ -15,7 +15,7 @@
 
 _addon.name     = 'CondensedDamage'
 _addon.author   = 'Broguypal'
-_addon.version  = '3.0-filters'
+_addon.version  = '1.0'
 _addon.commands = {'cdd', 'condenseddamage'}
 
 local config = require('config')
