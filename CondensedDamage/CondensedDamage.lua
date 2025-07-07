@@ -1,6 +1,18 @@
 -- CondensedDamage
 -- Author: Broguypal
 
+-- WARNING:
+-- This addon injects condensed damage messages using specific chat modes:
+-- - Mode 151: Used for player, trust, and NPC auto/ranged attacks.
+--   • This is the same mode used by NPC dialogue (e.g., key item messages, shop text).
+--   • You MUST keep "NPC dialogue" enabled in your log to see these messages.
+--
+-- - Mode 122: Used for Enspell damage only.
+--   • This is part of the game's "Battle messages" filter.
+--   • You MUST have "Battle Messages" enabled in your log
+--     to see Enspell damage lines.
+
+
 _addon.name     = 'CondensedDamage'
 _addon.author   = 'Broguypal'
 _addon.version  = '3.0-filters'
