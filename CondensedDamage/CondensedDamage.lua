@@ -115,6 +115,13 @@ windower.register_event('action', function(act)
     if not condensed_categories[act.category] then return end
 
     local actor = windower.ffxi.get_mob_by_id(act.actor_id)
+    if not actor then return end  -- Skip if actor can't be resolved
+
+    -- FINAL MONSTER BLOCK: Skip monsters or anything not in party (e.g., wild NPCs)
+    if actor.is_monster == true or actor.in_party == false then
+        return
+    end
+
     if not should_show(actor) then return end
 
     local results = parse_action(act)
@@ -132,17 +139,26 @@ windower.register_event('incoming text', function(original)
 
     local suppress = false
 
+    -- Suppress your own damage lines
     if original:match('^' .. me.name .. ' hits [%w%s]+ for %d+') or
-       original:match('^Additional effect:') or
-       original:match('^' .. me.name .. ' scores a critical hit!') then
+       original:match('^' .. me.name .. ' scores a critical hit!') or
+       original:match('^Additional effect:') then
         suppress = true
     end
 
-    if original:match('^[^%s]+ hits [^%s]+ for %d+') then
-        local actor = original:match('^([^%s]+) hits')
-        local mob = actor and windower.ffxi.get_mob_by_name(actor)
-        if mob and should_show(mob) then
-            suppress = true
+    -- Suppress damage lines from non-monsters (party/trusts/etc.) if enabled
+    local attacker = original:match('^([^%s]+) hits') or
+                     original:match('^([^%s]+) scores a critical hit!') or
+                     original:match("^([^%s]+)'s additional effect hits")
+
+    if attacker then
+        local mob = windower.ffxi.get_mob_by_name(attacker)
+        if mob then
+            if mob.is_monster then
+                suppress = false -- never suppress monsters
+            elseif should_show(mob) then
+                suppress = true
+            end
         end
     end
 
