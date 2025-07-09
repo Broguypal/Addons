@@ -50,10 +50,6 @@ local function purge_expired(buffer)
     end
 end
 
-local function format_line(entry)
-    return entry.text
-end
-
 local function update_display()
     if not initialized or not windower.ffxi.get_player() then
         if output_box then output_box:hide() end
@@ -76,7 +72,7 @@ local function update_display()
     if #lines > 0 then
         local out = ''
         for i, entry in ipairs(lines) do
-            out = out .. format_line(entry)
+            out = out .. entry.text
             if i < #lines then
                 out = out .. '\n'
             end
@@ -149,8 +145,6 @@ windower.register_event('prerender', function()
     if initialized and output_box then
         local x, y = output_box:pos()
         if x ~= last_pos.x or y ~= last_pos.y then
-            last_pos.x = x
-            last_pos.y = y
             save_settings()
         end
         update_display()
