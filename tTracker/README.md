@@ -8,7 +8,7 @@
 
 - Displays:
   - Spells cast by your target (color-coded by element)
-  - TP moves being readied
+  - TP moves being readied by your target
 - Fully draggable overlay box
 - Customizable:
   - Display mode: always, combat-only, or only when actions occur
