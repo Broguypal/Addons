@@ -9,7 +9,7 @@
 - Displays:
   - Spells cast by your target (color-coded by element)
   - Monster abilities being readied by your target
-  - Weapon skills being casy by your player/trust target (color-coded by element)
+  - Weapon skills being casy by your player target (color-coded by element)
 - Fully draggable overlay box
 - Customizable:
   - Display mode: always, combat-only, or only when actions occur
