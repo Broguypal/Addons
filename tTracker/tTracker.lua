@@ -31,8 +31,8 @@ local expire_seconds
 
 -- Save settings helper
 local function save_settings()
-    if not settings then return end
-    local x, y = output_box and output_box:pos() or settings.pos.x, settings.pos.y
+    if not settings or not output_box then return end
+    local x, y = output_box:pos()
     settings.pos.x = x
     settings.pos.y = y
     settings.mode = mode
