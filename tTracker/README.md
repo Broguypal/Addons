@@ -20,7 +20,7 @@
 
 ## Display Modes
 
-`tTracker` supports three display modes you can toggle with `/track mode`:
+`tTracker` supports three display modes you can toggle with `//track mode`:
 
 - **always** – The box is always shown (even when no target actions occur).
 - **combat** – Only shown while you are in combat.
