@@ -198,10 +198,23 @@ windower.register_event('incoming chunk', function(id, data)
         end
 
     -- === MONSTER TP MOVES ONLY ===
-    elseif p.Category == 7 and actor.is_npc then
-        local ability = res.monster_abilities[param]
-        local ability_name = ability and ability.name or ("Unknown TP Move")
-        add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(255,192,64)%s\\cr"):format(actor_name, ability_name))
+    elseif p.Category == 7 then
+		if actor.is_npc then
+			local ability = res.monster_abilities[param]
+			local ability_name = ability and ability.name or ("Unknown TP Move")
+			add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(255,192,64)%s\\cr"):format(actor_name, ability_name))
+		elseif not actor.is_npc then
+			local ws = res.weapon_skills[param]
+			local ws_name = ws and ws.name or ("Unknown Weaponskill")
+			local element_id = ws and ws.element
+			
+			local r, g, b = unpack(element_colors.default)
+			if element_id and element_colors[element_id] then
+				r, g, b = unpack(element_colors[element_id])
+			end
+			
+			add_line(("\\cs(255,255,64)%s uses:\\cr \\cs(%d,%d,%d)%s\\cr"):format(actor_name, r, g, b, ws_name))
+		end
     end
 end)
 
