@@ -1,0 +1,12 @@
+<?xml version="1.1" ?>
+<settings>
+    <global>
+        <max_lines>5</max_lines>
+        <mode>always</mode>
+        <pos>
+            <x>800</x>
+            <y>300</y>
+        </pos>
+        <timeout>20</timeout>
+    </global>
+</settings>
