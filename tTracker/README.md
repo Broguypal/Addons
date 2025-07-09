@@ -8,7 +8,8 @@
 
 - Displays:
   - Spells cast by your target (color-coded by element)
-  - TP moves being readied by your target
+  - Monster abilities being readied by your target
+  - Weapon skills being casy by your player/trust target (color-coded by element)
 - Fully draggable overlay box
 - Customizable:
   - Display mode: always, combat-only, or only when actions occur
@@ -45,9 +46,9 @@ You can also use `//ttracker` in place of `//track`.
 
 ## Important Notes
 
-- Spells are colored based on their **element** as defined by Windower’s `resources`.
-- Some spells (specifically Blue Magic spells such as *Cocoon*) may appear with **unexpected colors**.
-  - Example: *Cocoon* is an Earth spell, but may appear as element ID `15` (None) due to how Windower classifies it.
+- Spells and player weaponskills are colored based on their **element** as defined by Windower’s `resources`.
+- Some spells (specifically Blue Magic spells such as *Cocoon*) or physical weaponskills may appear with **unexpected colors**.
+  - Example: *Cocoon* is an Earth spell, but may appear as element ID `15` (None) due to how Windower classifies it. Similarly, physical weaponskills are classified by default as light.
 - This is a limitation of Windower’s internal spell database and not a bug in the addon.
 
 ---
