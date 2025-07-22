@@ -211,7 +211,7 @@ windower.register_event('incoming chunk', function(id, data)
 
     -- === MONSTER TP MOVES ONLY ===
     elseif p.Category == 7 then
-		if actor.is_npc then
+		if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
 			local ability = res.monster_abilities[param]
 			local ability_name = ability and ability.name or ("Unknown TP Move")
 
@@ -222,7 +222,7 @@ windower.register_event('incoming chunk', function(id, data)
 				add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(255,192,64)%s\\cr"):format(actor_name, ability_name))
 			end
 
-		elseif not actor.is_npc then
+		elseif actor.spawn_type == 1 or actor.spawn_type == 14 or actor.spawn_type == 13 then --(1 = other players, 14 = trusts, 13 = self)
 			local ws = res.weapon_skills[param]
 			local ws_name = ws and ws.name or ("Unknown Weaponskill")
 			local element_id = ws and ws.element
