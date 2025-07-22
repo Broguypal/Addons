@@ -105,6 +105,18 @@ local function replace_casting_line(actor_name, spell_name, new_text)
     add_line(new_text)
 end
 
+local function replace_readying_line(actor_name, new_text)
+    for i, entry in ipairs(lines) do
+        if entry.text:find(actor_name .. ' readies:') then
+            lines[i] = {text = new_text, time = os.clock()}
+            update_display()
+            return
+        end
+    end
+    -- Fallback
+    add_line(new_text)
+end
+
 -- Clear on zone change
 windower.register_event('zone change', function()
     lines = {}
@@ -202,7 +214,14 @@ windower.register_event('incoming chunk', function(id, data)
 		if actor.is_npc then
 			local ability = res.monster_abilities[param]
 			local ability_name = ability and ability.name or ("Unknown TP Move")
-			add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(255,192,64)%s\\cr"):format(actor_name, ability_name))
+
+			if message_id == 0 then
+				local interrupt_line = ("\\cs(100,100,100)%s's TP move was interrupted.\\cr"):format(actor_name)
+				replace_readying_line(actor_name, interrupt_line)
+			else
+				add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(255,192,64)%s\\cr"):format(actor_name, ability_name))
+			end
+
 		elseif not actor.is_npc then
 			local ws = res.weapon_skills[param]
 			local ws_name = ws and ws.name or ("Unknown Weaponskill")
