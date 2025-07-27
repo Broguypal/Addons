@@ -8,8 +8,8 @@
 
 - Displays:
   - Spells cast by your target (color-coded by element)
-  - Monster abilities being readied by your target
-  - Weapon skills being casy by your player/trust target (color-coded by element)
+  - Monster abilities being readied by your target (with optional manual element coloring)
+  - Weapon skills being used by your player/trust target (color-coded by element)
   - Spells and TP moves interrupted
 - Fully draggable overlay box
 - Customizable:
@@ -35,13 +35,34 @@
 Use these in-game:
 
 ```
-//track mode [always|combat|action]   -- When to show the box
-//track lines <1–50>                  -- Max lines displayed (default: 5)
-//track timeout <1–120>               -- Line duration in seconds (default: 20)
-//track status                        -- View current settings
+//track mode [always|combat|action]       -- When to show the box
+//track lines <1–50>                      -- Max lines displayed (default: 5)
+//track timeout <1–120>                   -- Line duration in seconds (default: 20)
+//track status                            -- View current settings
+//track add "Ability Name" <element>      -- Assign a monster TP move to an element
+//track remove "Ability Name"             -- Remove a tracked monster TP move
 ```
 
 You can also use `//ttracker` in place of `//track`.
+
+---
+
+## Custom Monster Ability Elements
+
+`tTracker` allows you to manually color monster TP moves by assigning them an element using:
+
+```
+/track add "Ability Name" <element>
+/track remove "Ability Name"
+```
+
+Valid elements are: `fire`, `water`, `wind`, `ice`, `earth`, `thunder`, `light`, `dark`
+
+Once added, the ability will show in the corresponding element color (same as spells).
+
+Note:
+- You **cannot assign the same ability to more than one element**.
+- Abilities are saved to `Monster_Ability_Elements.lua` and persist between sessions.
 
 ---
 
@@ -68,4 +89,4 @@ You can also use `//ttracker` in place of `//track`.
 ## Author
 
 - **Name:** Broguypal
-- **Version:** 1.0
+- **Version:** 1.5
