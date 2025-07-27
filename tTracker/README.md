@@ -52,8 +52,8 @@ You can also use `//ttracker` in place of `//track`.
 `tTracker` allows you to manually color monster TP moves by assigning them an element using:
 
 ```
-/track add "Ability Name" <element>
-/track remove "Ability Name"
+//track add "Ability Name" <element>
+//track remove "Ability Name"
 ```
 
 Valid elements are: `fire`, `water`, `wind`, `ice`, `earth`, `thunder`, `light`, `dark`
