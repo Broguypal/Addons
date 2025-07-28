@@ -1,6 +1,6 @@
 _addon.name = 'tTracker'
 _addon.author = 'Broguypal'
-_addon.version = '1.5'
+_addon.version = '1.6'
 _addon.commands = {'ttracker', 'track'}
 
 packets = require('packets')
@@ -10,23 +10,11 @@ config = require('config')
 
 local element_path = windower.addon_path .. 'Monster_Ability_Elements.lua'
 local monster_elements = require('Monster_Ability_Elements')
+local unique_elements = require('Unique_Elements')
 
 local valid_elements = {
     fire = true, water = true, wind = true, ice = true,
     earth = true, thunder = true, light = true, dark = true
-}
-
-local light_weaponskills = {
-    ["Shining Blade"] = true,
-    ["Seraph Blade"] = true,
-    ["Primal Rend"] = true,
-    ["Tachi: Koki"] = true,
-    ["Uriel Blade"] = true,
-    ["Shining Strike"] = true,
-    ["Seraph Strike"] = true,
-    ["Flash Nova"] = true,
-    ["Trueflight"] = true,
-    ["Garland of Bliss"] = true,
 }
 
 local function save_monster_elements()
@@ -246,8 +234,19 @@ windower.register_event('incoming chunk', function(id, data)
     if p.Category == 8 then
         local spell = res.spells[param]
         local spell_name = spell and spell.name or ("Unknown Spell")
-        local element_id = spell and spell.element
-
+        local element_id
+			if spell then
+				for element_name, spell_table in pairs(unique_elements) do
+					if spell_table[spell.name] then
+						element_id = ({
+							fire = 0, ice = 1, wind = 2, earth = 3,
+							thunder = 4, water = 5, light = 6, dark = 7
+						})[element_name]
+						break
+					end
+				end
+				element_id = element_id or spell.element
+			end
         local r, g, b = unpack(element_colors.default)
         if element_id and element_colors[element_id] then
             r, g, b = unpack(element_colors[element_id])
@@ -288,7 +287,7 @@ windower.register_event('incoming chunk', function(id, data)
 			local ws = res.weapon_skills[param]
 			local ws_name = ws and ws.name or ("Unknown Weaponskill")
 			local element_id = ws and ws.element
-				if element_id == 6 and not light_weaponskills[ws_name] then
+				if element_id == 6 and not (unique_elements.light_weaponskills or {})[ws_name] then
 					element_id = nil -- override false "Light" classification
 				end
 			
