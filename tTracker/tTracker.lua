@@ -17,6 +17,32 @@ local valid_elements = {
     earth = true, thunder = true, light = true, dark = true
 }
 
+-- Custom Monster element colors
+local monster_element_colors = {
+    fire = {255, 64, 64},
+    water = {64, 128, 255},
+    wind = {64, 255, 128},
+    ice = {160, 240, 255},
+    earth = {150, 100, 50},
+    thunder = {192, 64, 255},
+    light = {255, 255, 255},
+    dark = {80, 60, 100},
+}
+
+-- Spell color map
+local element_colors = {
+    [0] = {255, 64, 64},
+    [1] = {160, 240, 255},
+    [2] = {64, 255, 128},
+    [3] = {150, 100, 50},
+    [4] = {192, 64, 255},
+    [5] = {64, 128, 255},
+    [6] = {255, 255, 255},
+    [7] = {80, 60, 100},
+    default = {255, 192, 64}
+}
+
+-- Saving Elements
 local function save_monster_elements()
     local file = io.open(element_path, 'w')
     if not file then
@@ -36,25 +62,6 @@ local function save_monster_elements()
     print('[tTracker] Monster_Ability_Elements.lua updated.')
 end
 
-local monster_element_colors = {
-    fire = {255, 64, 64},
-    water = {64, 128, 255},
-    wind = {64, 255, 128},
-    ice = {160, 240, 255},
-    earth = {150, 100, 50},
-    thunder = {192, 64, 255},
-    light = {255, 255, 255},
-    dark = {80, 60, 100},
-}
-
--- Default settings
-local defaults = {
-    mode = 'always',
-    pos = {x = 800, y = 300},
-    max_lines = 5,
-    timeout = 20
-}
-
 local settings
 local mode
 local output_box
@@ -67,6 +74,14 @@ local default_msg = '\\cs(100,100,100)tTracker ready...\\cr'
 local lines = {}
 local max_lines
 local expire_seconds
+
+-- Default settings
+local defaults = {
+    mode = 'always',
+    pos = {x = 800, y = 300},
+    max_lines = 5,
+    timeout = 20
+}
 
 -- Save settings helper
 local function save_settings()
@@ -201,19 +216,6 @@ windower.register_event('prerender', function()
         update_display()
     end
 end)
-
--- Element color map
-local element_colors = {
-    [0] = {255, 64, 64},
-    [1] = {160, 240, 255},
-    [2] = {64, 255, 128},
-    [3] = {150, 100, 50},
-    [4] = {192, 64, 255},
-    [5] = {64, 128, 255},
-    [6] = {255, 255, 255},
-    [7] = {80, 60, 100},
-    default = {180, 180, 180}
-}
 
 -- Handle incoming casting/readies
 windower.register_event('incoming chunk', function(id, data)
