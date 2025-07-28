@@ -261,7 +261,7 @@ windower.register_event('incoming chunk', function(id, data)
             add_line(("\\cs(180,180,255)%s is casting:\\cr \\cs(%d,%d,%d)%s\\cr"):format(actor_name, r, g, b, spell_name))
         end
 
-    -- === TP/Ready MOVES ===
+    -- === TP/Ready moves (Category 7) ===
     elseif p.Category == 7 then
 		if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
 			local ability = res.monster_abilities[param]
