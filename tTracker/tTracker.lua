@@ -16,6 +16,19 @@ local valid_elements = {
     earth = true, thunder = true, light = true, dark = true
 }
 
+local light_weaponskills = {
+    ["Shining Blade"] = true,
+    ["Seraph Blade"] = true,
+    ["Primal Rend"] = true,
+    ["Tachi: Koki"] = true,
+    ["Uriel Blade"] = true,
+    ["Shining Strike"] = true,
+    ["Seraph Strike"] = true,
+    ["Flash Nova"] = true,
+    ["Trueflight"] = true,
+    ["Garland of Bliss"] = true,
+}
+
 local function save_monster_elements()
     local file = io.open(element_path, 'w')
     if not file then
@@ -247,6 +260,7 @@ windower.register_event('incoming chunk', function(id, data)
             add_line(("\\cs(180,180,255)%s is casting:\\cr \\cs(%d,%d,%d)%s\\cr"):format(actor_name, r, g, b, spell_name))
         end
 
+    -- === TP/Ready MOVES ===
     elseif p.Category == 7 then
 		if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
 			local ability = res.monster_abilities[param]
@@ -274,6 +288,9 @@ windower.register_event('incoming chunk', function(id, data)
 			local ws = res.weapon_skills[param]
 			local ws_name = ws and ws.name or ("Unknown Weaponskill")
 			local element_id = ws and ws.element
+				if element_id == 6 and not light_weaponskills[ws_name] then
+					element_id = nil -- override false "Light" classification
+				end
 			
 			local r, g, b = unpack(element_colors.default)
 			if element_id and element_colors[element_id] then
