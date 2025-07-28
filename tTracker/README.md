@@ -69,8 +69,8 @@ Note:
 ## Important Notes
 
 - Spells and player weaponskills are colored based on their **element** as defined by Windower’s `resources`.
-- Some spells (specifically Blue Magic spells such as *Cocoon*) or physical weaponskills may appear with **unexpected colors**.
-  - Example: *Cocoon* is an Earth spell, but may appear as element ID `15` (None) due to how Windower classifies it. Similarly, physical weaponskills are classified by default as light.
+- Some spells (specifically Blue Magic spells such as *Cocoon*) may appear with **unexpected colors**.
+  - Example: *Cocoon* is an Earth spell, but may appear as element ID `15` (None) due to how Windower classifies it. 
 - This is a limitation of Windower’s internal spell database and not a bug in the addon.
 
 ---
