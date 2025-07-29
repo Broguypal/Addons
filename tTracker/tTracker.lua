@@ -178,6 +178,7 @@ windower.register_event('zone change', function()
         output_box:text('')
         output_box:hide()
     end
+	player_ready = false
 end)
 
 -- Initialization and update every frame
