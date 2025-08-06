@@ -226,7 +226,7 @@ windower.register_event('incoming chunk', function(id, data)
     local actor = windower.ffxi.get_mob_by_id(p.Actor)
     local target = windower.ffxi.get_mob_by_target('t')
 
-    if not target then return end
+    if not actor or not target then return end
     if actor.id ~= target.id then return end
 
     local actor_name = actor.name
