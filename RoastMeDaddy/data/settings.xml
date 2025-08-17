@@ -1,0 +1,9 @@
+<?xml version="1.1" ?>
+<settings>
+    <global>
+        <cooldown_seconds>8</cooldown_seconds>
+        <inject_delay>1.1</inject_delay>
+        <mode>random</mode>
+        <trigger_chance>0.15</trigger_chance>
+    </global>
+</settings>
