@@ -1,6 +1,6 @@
 # RoastMeDaddy
 
-RoastMeDaddy is a **wonderful Windower addon** for Final Fantasy XI that brings humor and fun into your NPC interactions.  
+RoastMeDaddy is a **wonderful** Windower addon for Final Fantasy XI that brings humor and fun into your NPC interactions.  
 Whenever you talk to an NPC, there’s a chance the addon will inject a random **flirty** or **roasting** one-liner into your chat log.  
 
 ---
