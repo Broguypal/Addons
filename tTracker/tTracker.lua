@@ -265,9 +265,9 @@ windower.register_event('incoming chunk', function(id, data)
     -- === TP/Ready moves (Category 7) ===
     elseif p.Category == 7 then
 		if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
-		local mob_ability = res.monster_abilities[param]
-		local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
-		local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
+			local mob_ability = res.monster_abilities[param]
+			local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
+			local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
 
 			if message_id == 0 then
 				local interrupt_line = ("\\cs(100,100,100)%s's TP move was interrupted.\\cr"):format(actor_name)
