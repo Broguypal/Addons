@@ -265,21 +265,33 @@ windower.register_event('incoming chunk', function(id, data)
     -- === TP/Ready moves (Category 7) ===
     elseif p.Category == 7 then
 		if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
-			local ability = res.monster_abilities[param]
-			local ability_name = ability and ability.name or ("Unknown TP Move")
+		local mob_ability = res.monster_abilities[param]
+		local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
+		local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
 
 			if message_id == 0 then
 				local interrupt_line = ("\\cs(100,100,100)%s's TP move was interrupted.\\cr"):format(actor_name)
 				replace_readying_line(actor_name, interrupt_line)
 			else
-				local r, g, b = 255, 192, 64 -- default color
-				for element, ability_table in pairs(monster_elements) do
-					if ability_table[ability_name] then
-						local color = monster_element_colors[element]
-						if color then
-							r, g, b = unpack(color)
+				local r, g, b = 255, 192, 64 -- default
+
+				if mob_ability then
+					-- Color using your monster tables
+					for element, ability_table in pairs(monster_elements) do
+						if ability_table[ability_name] then
+							local color = monster_element_colors[element]
+							if color then r, g, b = unpack(color) end
+							break
 						end
-						break
+					end
+				elseif ws then
+					-- Monster used a player WS: color by WS element (same logic as players)
+					local element_id = ws.element
+					if element_id == 6 and not (unique_elements.light_weaponskills or {})[ability_name] then
+						element_id = nil -- override false "Light" classification
+					end
+					if element_id and element_colors[element_id] then
+						r, g, b = unpack(element_colors[element_id])
 					end
 				end
 
