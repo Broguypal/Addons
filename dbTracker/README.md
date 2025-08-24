@@ -19,7 +19,7 @@
   - **Support** – Yellow  
 
 - **Severe Debuffs Highlighting**  
-  Debuffs flagged as **SEVERE** in `tracked_buffs.lua` are displayed in **orange**, making them stand out as urgent.  
+  Debuffs flagged as **SEVERE** in `tracked_buffs.lua` are displayed in **red**, making them stand out as urgent.  
 
 ---
 
