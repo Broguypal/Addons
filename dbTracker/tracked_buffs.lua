@@ -34,8 +34,6 @@ M.TRACK = {
     [29] = "Mute",
     [30] = "Bane",
     [31] = "Plague",
-	
-	[40] = "Protect",
 
     -- Elemental DoTs / Core downs / Dia-Bio
     [128] = "Burn",
@@ -104,3 +102,4 @@ M.SEVERE = {
 }
 
 return M
+
