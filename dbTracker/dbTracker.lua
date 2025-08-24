@@ -52,7 +52,7 @@ local function decode_buff_array(raw_or_table)
       local lo = raw_or_table:byte(i)
       local hi = raw_or_table:byte(i+1)
       if not (lo == 0 and hi == 0) and not (lo == 0xFF and hi == 0xFF) then
-        local id = (hi == 0xFF or hi == 0x28) and lo or (lo + 256*hi)
+        local id = (hi == 0xFF) and lo or (lo + 256*hi)
         if id and id > 0 and not seen[id] then
           seen[id] = true
           ids[#ids+1] = id
@@ -244,6 +244,7 @@ local settings = config.load(defaults)
 local GREY   = {r=120, g=120, b=120}
 local WHITE  = {r=255, g=255, b=255}
 local ORANGE = {r=255, g=160, b=60}
+local RED 	 = {r=255, g=80, b=80} 
 local STROKE = {r=0, g=0, b=0, a=220, w=2}
 
 local COL_P_PX    = 26
@@ -269,6 +270,20 @@ local function make_text(x, y, size, color, bold)
     flags= {draggable=false, bold=bold or false},
   })
   return t
+end
+
+local function colorize_labels(labels, severe_rgb)
+  severe_rgb = severe_rgb or RED 
+  local parts = {}
+  for _, lbl in ipairs(labels) do
+    if SEVERE[lbl] then
+      -- Inline color for just this label; reset with \cr
+      parts[#parts+1] = ('\\cs(%d,%d,%d)%s\\cr'):format(severe_rgb.r, severe_rgb.g, severe_rgb.b, lbl)
+    else
+      parts[#parts+1] = lbl
+    end
+  end
+  return table.concat(parts, ', ')
 end
 
 local function collect_rows()
@@ -319,19 +334,18 @@ local function render_rows(rows)
     end
 
     if row then
-      widgets.p:pos(x, base_y); widgets.p:text(('P%d'):format(row.slot)); widgets.p:visible(true)
-      widgets.name:pos(x+COL_P_PX+NAME_XPAD, base_y); widgets.name:text(row.name)
-      local role = row.job and JOB_ROLE[row.job] or nil
-      local col = (role and ROLE_COLORS[role]) or WHITE
-      widgets.name:color(col.r, col.g, col.b)
-      widgets.name:visible(true)
+		widgets.p:pos(x, base_y); widgets.p:text(('P%d'):format(row.slot)); widgets.p:visible(true)
+		widgets.name:pos(x+COL_P_PX+NAME_XPAD, base_y); widgets.name:text(row.name)
+		local role = row.job and JOB_ROLE[row.job] or nil
+		local col = (role and ROLE_COLORS[role]) or WHITE
+		widgets.name:color(col.r, col.g, col.b)
+		widgets.name:visible(true)
 
-      local s = table.concat(row.debuffs, ', ')
-      widgets.debs:pos(x+COL_P_PX+COL_NAME_PX, base_y); widgets.debs:text(s)
-      local severe = false
-      for _,lbl in ipairs(row.debuffs) do if SEVERE[lbl] then severe = true break end end
-      if severe then widgets.debs:color(ORANGE.r, ORANGE.g, ORANGE.b) else widgets.debs:color(WHITE.r, WHITE.g, WHITE.b) end
-      widgets.debs:visible(true)
+		local s = colorize_labels(row.debuffs, RED)  -- or ORANGE
+		widgets.debs:pos(x+COL_P_PX+COL_NAME_PX, base_y)
+		widgets.debs:text(s)
+		widgets.debs:color(WHITE.r, WHITE.g, WHITE.b)  -- base color stays neutral
+		widgets.debs:visible(true)
     else
       widgets.p:visible(false); widgets.name:visible(false); widgets.debs:visible(false)
     end
