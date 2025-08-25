@@ -52,7 +52,7 @@ local function decode_buff_array(raw_or_table)
       local lo = raw_or_table:byte(i)
       local hi = raw_or_table:byte(i+1)
       if not (lo == 0 and hi == 0) and not (lo == 0xFF and hi == 0xFF) then
-        local id = (hi == 0xFF) and lo or (lo + 256*hi)
+        local id = (hi == 0xFF or hi == 0x28) and lo or (lo + 256*hi)
         if id and id > 0 and not seen[id] then
           seen[id] = true
           ids[#ids+1] = id
