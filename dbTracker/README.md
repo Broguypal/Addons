@@ -61,4 +61,4 @@
 ## 👤 Author
 
 Created by **Broguypal**  
-Version **1.1**  
+Version **1.4**  
