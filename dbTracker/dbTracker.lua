@@ -62,15 +62,7 @@ local function is_player_ready()
 end
 
 ------------------------------------------------------------
--- 0x076 Party Buff Parsing (exact packing)
--- For each party slot k=0..4 (P1..P5):
---   base = k*48 + 5
---   id   = uint32 at base
---   for i=1..32:
---     low byte at base+16+(i-1)
---     high 2 bits for this i come from base+8+floor((i-1)/4)
---     extract via hi2 = floor(hix / 4^((i-1)%4)) % 4
---     buff_id = low + 256*hi2
+-- Parsing
 ------------------------------------------------------------
 local function parse_buffs(data)
     local party = windower.ffxi.get_party() or {}
@@ -495,7 +487,7 @@ windower.register_event('load', function() -- Create member table if addon loads
         end
     end
 
-    -- Seed your own job too (redundant but safe)
+    -- Seed your own job too
     local player = windower.ffxi.get_player()
     if player and player.name then
         if type(player.main_job) == 'string' then
