@@ -1,262 +1,156 @@
 _addon.name     = 'dbTracker'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.1'
+_addon.version  = '1.4'
 
 local texts   = require('texts')
 local config  = require('config')
 local packets = require('packets')
 local res     = require('resources')
 
+------------------------------------------------------------
+-- State
+------------------------------------------------------------
 local zoning_bool = false
+local LAST_CONFIRMED = {}      -- name -> {buff_id1, buff_id2, ...}
+local MEMBER_JOB    = {}       -- name -> 'WAR', 'WHM', ... (short code)
 
-local function member_same_zone(name)
-  local party = windower.ffxi.get_party() or {}
-  local zone = windower.ffxi.get_info().zone
-  for i=0,5 do
-    local m = party['p'..i]
-    if m and m.name == name then
-      return m.zone == zone
-    end
-  end
-  return true -- default permissive if unknown
-end
-
--- Safe tracked list require
+------------------------------------------------------------
+-- tracked_buffs (safe require)
+-- Expect: return { TRACK = { [id]=label, ... }, SEVERE = { [label]=true, ... } }
+------------------------------------------------------------
 local ok_trk, tracked_mod = pcall(require, 'tracked_buffs')
 local TRACK  = (ok_trk and type(tracked_mod.TRACK)  == 'table') and tracked_mod.TRACK  or {}
 local SEVERE = (ok_trk and type(tracked_mod.SEVERE) == 'table') and tracked_mod.SEVERE or {}
 
-----------------------------------------------------------------
--- Helpers
-----------------------------------------------------------------
-local function name_from_id_index(id, idx)
-  if id and id ~= 0 then
-    local m = windower.ffxi.get_mob_by_id(id)
-    if m and m.name then return m.name end
-  end
-  if idx and idx ~= 0 then
-    local m = windower.ffxi.get_mob_by_index(idx)
-    if m and m.name then return m.name end
-  end
-  return '<unknown>'
+------------------------------------------------------------
+-- Member tracking helpers
+------------------------------------------------------------
+local member_table = { _names = {}, _ids = {} }
+function member_table:contains(name)
+    for i = 1, #self._names do
+        if self._names[i] == name then return true end
+    end
+    return false
 end
+function member_table:append(name)
+    self._names[#self._names+1] = name
+end
+setmetatable(member_table, {
+    __index = function(t, k) return rawget(t._ids, k) end,
+    __newindex = function(t, k, v) rawset(t._ids, k, v) end,
+})
 
--- Decode uint16 buff array; strip flagged high bytes (0xFF, 0x28)
-local function decode_buff_array(raw_or_table)
-  if type(raw_or_table) == 'table' then
-    return raw_or_table
-  elseif type(raw_or_table) == 'string' then
-    local ids, seen = {}, {}
-    local n = #raw_or_table
-    for i = 1, n-1, 2 do
-      local lo = raw_or_table:byte(i)
-      local hi = raw_or_table:byte(i+1)
-      if not (lo == 0 and hi == 0) and not (lo == 0xFF and hi == 0xFF) then
-        local id = (hi == 0xFF or hi == 0x28) and lo or (lo + 256*hi)
-        if id and id > 0 and not seen[id] then
-          seen[id] = true
-          ids[#ids+1] = id
+local _id_to_name = {}
+local function _name_from_id(id)
+    if id and id ~= 0 then
+        local nm = _id_to_name[id]
+        if nm then return nm end
+        local m = windower.ffxi.get_mob_by_id(id)
+        if m and m.name then
+            _id_to_name[id] = m.name
+            return m.name
         end
-      end
     end
-    return ids
-  end
-  return nil
+    return nil
 end
 
--- Caches:
-local LAST_CONFIRMED, MEMBER_LAST_SNAPSHOT = {}, {}
-_G.MEMBER_JOB = _G.MEMBER_JOB or {}
-local MEMBER_JOB = _G.MEMBER_JOB
-
-local function only_tracked_ids(ids)
-  if not ids then return {} end
-  local out, seen = {}, {}
-  for _,id in ipairs(ids) do
-    if TRACK[id] and not seen[id] then
-      seen[id] = true
-      out[#out+1] = id
-    end
-  end
-  return out
+local function is_player_ready()
+  local info = windower.ffxi.get_info()
+  if not (info and info.logged_in) then return false end
+  local p = windower.ffxi.get_player()
+  return (p and p.name and p.id) ~= nil
 end
 
-local function diff_and_commit(name, now_ids)
-  local now = {}
-  for _,id in ipairs(only_tracked_ids(now_ids or {})) do now[id] = true end
-  LAST_CONFIRMED[name] = now
-  MEMBER_LAST_SNAPSHOT[name] = os.clock()
-end
-
-----------------------------------------------------------------
--- Incoming packets: PartyBuffs logic (snapshots only)
-----------------------------------------------------------------
-windower.register_event('incoming chunk', function(id, data)
-  if id == 0x076 then
-    local p = packets.parse('incoming', data); if not p then return end
+------------------------------------------------------------
+-- 0x076 Party Buff Parsing (exact packing)
+-- For each party slot k=0..4 (P1..P5):
+--   base = k*48 + 5
+--   id   = uint32 at base
+--   for i=1..32:
+--     low byte at base+16+(i-1)
+--     high 2 bits for this i come from base+8+floor((i-1)/4)
+--     extract via hi2 = floor(hix / 4^((i-1)%4)) % 4
+--     buff_id = low + 256*hi2
+------------------------------------------------------------
+local function parse_buffs(data)
     local party = windower.ffxi.get_party() or {}
-    for slot = 0, 5 do
-      local m = party['p'..slot]
-      local name
-      if m and m.name then
-        name = m.name
-      else
-        local pid  = p[('ID %u'):format(slot)]
-        local pidx = p[('Index %u'):format(slot)]
-        name = name_from_id_index(pid, pidx)
-      end
-      local field = ('Buffs %u'):format(slot)
-      local raw   = p[field]
-      if raw ~= nil and name then
-        local ids = decode_buff_array(raw) or {}
-        diff_and_commit(name, ids)
-      end
+    for k = 0, 4 do
+        local base = k*48 + 5
+        local pid  = data:unpack('I', base)
+        if pid ~= 0 then
+            local m = party['p'..(k+1)]
+            local name = (m and m.name) or _name_from_id(pid) or ('<'..tostring(pid)..'>')
+            if name and name ~= '' then
+                local ids = {}
+                for i = 1, 32 do
+                    local low = data:byte(base + 16 + (i-1)) or 0
+                    local hix = data:byte(base + 8  + math.floor((i-1)/4)) or 0
+                    local hi2 = math.floor(hix / 4^((i-1)%4)) % 4
+                    local idv = low + 256*hi2
+                    ids[#ids+1] = idv
+                end
+                LAST_CONFIRMED[name] = ids
+            end
+        end
     end
-    return
-  end
-
-  if id == 0x0DD or id == 0x0DF then
-    local p = packets.parse('incoming', data); if not p then return end
-    local mj_id = p['Main job'] or p['Main Job'] or p['Job'] or p['Main Job ID']
-    local name_for_job = p.Name or name_from_id_index(p.ID or p['ID'], p.Index or p['Index'])
-    if name_for_job and type(mj_id) == 'number' and res.jobs[mj_id] and res.jobs[mj_id].ens then
-      MEMBER_JOB[name_for_job] = res.jobs[mj_id].ens
-    end
-    local buffs_field = p.Buffs or p.buffs
-    if buffs_field ~= nil then
-      local ids  = decode_buff_array(buffs_field) or {}
-      local name = p.Name or name_from_id_index(p.ID or p['ID'], p.Index or p['Index'])
-      if name then diff_and_commit(name, ids) end
-    end
-    return
-  end
-
-  if id == 0x00B then
-    zoning_bool = true
-    return
-  elseif id == 0x00A and zoning_bool then
-    zoning_bool = false
-    return
-  end
-end)
-
-windower.register_event('zone change', function()
-  LAST_CONFIRMED, MEMBER_LAST_SNAPSHOT = {}, {}
-  for k in pairs(MEMBER_JOB) do MEMBER_JOB[k] = nil end
-end)
-
-----------------------------------------------------------------
--- Labels
-----------------------------------------------------------------
-local function labels_for_member(name)
-  local labels = {}
-  if zoning_bool then return labels end
-  if not member_same_zone(name) then return labels end
-  local confirmed = LAST_CONFIRMED[name] or {}
-  for id,_ in pairs(confirmed) do
-    local lbl = TRACK[id]
-    if lbl then labels[#labels+1] = lbl end
-  end
-  table.sort(labels)
-  return labels
+	buff_sort()
 end
 
-local function p0_labels_from_api()
-  local labels = {}
-  local player = windower.ffxi.get_player()
-  if not player or not player.buffs then return labels end
-  for _, id in ipairs(player.buffs) do
-    if id and id ~= 0 and id ~= 255 then
-      local lbl = TRACK[id]
-      if lbl then labels[#labels+1] = lbl end
-    end
-  end
-  table.sort(labels)
-  return labels
-end
-
--- === Role colors and job mapping ===
+------------------------------------------------------------
+-- Role colors + jobs
+------------------------------------------------------------
 local ROLE_COLORS = {
     tank       = {r=100, g=160, b=255},  -- blue
     healer     = {r=60,  g=220, b=120},  -- green
     pure_dd    = {r=170, g=120, b=70 },  -- brown
     hybrid     = {r=255, g=165, b=0  },  -- orange
-    mag_dps    = {r=120, g=80,  b=160},  -- darkish purple
+    mag_dps    = {r=120, g=80,  b=160},  -- purple
     support    = {r=255, g=255, b=100},  -- yellow
+    default    = {r=200, g=200, b=200},  -- fallback grey
 }
 
 local JOB_ROLE = {
-    -- Tanks
     RUN='tank', PLD='tank',
-
-    -- Healers
     WHM='healer',
-
-    -- Pure DD
-    WAR='pure_dd', MNK='pure_dd', DRG='pure_dd', RNG='pure_dd',
-    SAM='pure_dd', DRK='pure_dd', THF='pure_dd', DNC='pure_dd',
-
-    -- Hybrid
+    WAR='pure_dd', MNK='pure_dd', DRG='pure_dd', RNG='pure_dd', SAM='pure_dd', DRK='pure_dd', THF='pure_dd', DNC='pure_dd',
     BST='hybrid', PUP='hybrid', RDM='hybrid', BLU='hybrid', NIN='hybrid',
-
-    -- Magic DPS
     BLM='mag_dps', SCH='mag_dps', SMN='mag_dps',
-
-    -- Support
     GEO='support', COR='support', BRD='support',
 }
 
-local function resolve_job_tag(name)
-  if not name then return nil end
-  if MEMBER_JOB[name] then return MEMBER_JOB[name] end
-  local pt = windower.ffxi.get_party() or {}
-  for i=0,5 do
-    local m = pt['p'..i]
-    if m and m.name == name then
-      if m.main_job and res.jobs[m.main_job] then
-        MEMBER_JOB[name] = res.jobs[m.main_job].ens
-        return MEMBER_JOB[name]
-      end
-    end
-  end
-  local player = windower.ffxi.get_player()
-  if player and player.name == name and player.main_job and res.jobs[player.main_job] then
-    MEMBER_JOB[name] = res.jobs[player.main_job].ens
-    return MEMBER_JOB[name]
-  end
-  return nil
+local function job_to_role(job)
+  return JOB_ROLE[job or ''] or 'default'
 end
 
-----------------------------------------------------------------
+local function name_color(name)
+  local job = MEMBER_JOB[name]
+  local role = job_to_role(job)
+  return ROLE_COLORS[role] or ROLE_COLORS.default
+end
+
+------------------------------------------------------------
 -- UI
-----------------------------------------------------------------
-local defaults = {
-  pos = {x=100, y=200},
-  locked = false,
-  font = 'Arial',
-  size = 10,
-  line_height = 18,
-  header_height = 22,
-  width = 520,
-}
-local settings = config.load(defaults)
+------------------------------------------------------------
+local settings = config.load({
+  pos   = {x=920, y=360},
+  font  = 'Consolas',
+  size  = 12,
+  p0_on_top = true,
+})
 
-local GREY   = {r=120, g=120, b=120}
-local WHITE  = {r=255, g=255, b=255}
-local ORANGE = {r=255, g=160, b=60}
-local RED 	 = {r=255, g=80, b=80} 
-local STROKE = {r=0, g=0, b=0, a=220, w=2}
+local ROW_H  = settings.size + 6
+local PAD_X  = 10
+local COL_NAME_PX = 140
 
-local COL_P_PX    = 26
-local NAME_XPAD   = 1
-local COL_NAME_PX = 110
+local STROKE = { w=1.7, a=180, r=0,g=0,b=0 }
+local GREY   = {r=200, g=200, b=200}
+local RED    = {r=230, g=90,  b=90}
 
-local ui = { header=nil, rows={}, }
-local last_rows = nil
-local last_sig = ''
+local ui = { header=nil, rows={} }
 local drag_state = { x = settings.pos.x, y = settings.pos.y }
 
 local function make_text(x, y, size, color, bold)
+  color = color or ROLE_COLORS.default
   local t = texts.new('', {
     pos  = {x = x, y = y},
     text = {
@@ -272,131 +166,365 @@ local function make_text(x, y, size, color, bold)
   return t
 end
 
-local function colorize_labels(labels, severe_rgb)
-  severe_rgb = severe_rgb or RED 
-  local parts = {}
-  for _, lbl in ipairs(labels) do
-    if SEVERE[lbl] then
-      -- Inline color for just this label; reset with \cr
-      parts[#parts+1] = ('\\cs(%d,%d,%d)%s\\cr'):format(severe_rgb.r, severe_rgb.g, severe_rgb.b, lbl)
-    else
-      parts[#parts+1] = lbl
-    end
-  end
-  return table.concat(parts, ', ')
+-- Safe color apply (prevents nil alpha errors)
+local function set_text_rgb(t, rgb)
+  if not t or not rgb then return end
+  local r = tonumber(rgb.r) or 255
+  local g = tonumber(rgb.g) or 255
+  local b = tonumber(rgb.b) or 255
+  t:color(r, g, b, 255)
 end
 
-local function collect_rows()
-  local rows = {}
-  local pt = windower.ffxi.get_party() or {}
-  local player = windower.ffxi.get_player()
-  local self_name = player and player.name or nil
+local function colorize_labels(labels, severe_rgb)
+  severe_rgb = severe_rgb or RED
+  local out = {}
+  for _, lbl in ipairs(labels) do
+    if SEVERE[lbl] then
+      out[#out+1] = ('\\cs(%d,%d,%d)%s\\cr'):format(severe_rgb.r, severe_rgb.g, severe_rgb.b, lbl)
+    else
+      out[#out+1] = lbl
+    end
+  end
+  return table.concat(out, ' ')
+end
 
-  for slot=0,5 do
-    local m = pt['p'..slot]
+-- Whitelist: only render labels for buff IDs present in TRACK
+local function labels_for_name(name)
+  local ids = LAST_CONFIRMED[name]
+  if not ids then return {} end
+  local out = {}
+  for _, id in ipairs(ids) do
+    if id and id ~= 0 and id ~= 255 then
+      local label = TRACK[id]
+      if label then
+        out[#out+1] = label
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+-- P0 uses API (0x076 does not include self)
+local function p0_labels_from_api()
+  local labels = {}
+  local player = windower.ffxi.get_player()
+  if not (player and player.buffs) then return labels end
+  for _, id in ipairs(player.buffs) do
+    if id and id ~= 0 and id ~= 255 then
+      local lbl = TRACK[id]
+      if lbl then labels[#labels+1] = lbl end
+    end
+  end
+  table.sort(labels)
+  return labels
+end
+
+-- compute rows
+local function compute_rows()
+  local names = {}
+  local party = windower.ffxi.get_party() or {}
+  local player = windower.ffxi.get_player()
+
+  if player and player.name and settings.p0_on_top then
+    names[#names+1] = player.name
+  end
+  for i=1,5 do
+    local m = party['p'..i]
     if m and m.name then
-      local debuffs = (self_name and m.name == self_name) and p0_labels_from_api() or labels_for_member(m.name)
-      local job_tag = resolve_job_tag(m.name)
-      rows[#rows+1] = { slot=slot, name=m.name, debuffs=debuffs, job=job_tag }
+      names[#names+1] = m.name
+      -- keep job cache fresh
+      if type(m.main_job) == 'string' then
+        MEMBER_JOB[m.name] = m.main_job:upper()
+      elseif type(m.main_job_id) == 'number' and res.jobs[m.main_job_id] then
+        local short = res.jobs[m.main_job_id].ens or res.jobs[m.main_job_id].english_short or res.jobs[m.main_job_id].name
+        if type(short) == 'string' then MEMBER_JOB[m.name] = short:upper() end
+      end
+    end
+  end
+  if player and player.name and not settings.p0_on_top then
+    table.insert(names, 1, player.name)
+  end
+
+  -- also keep player's job fresh
+  if player and player.name then
+    if type(player.main_job) == 'string' then
+      MEMBER_JOB[player.name] = player.main_job:upper()
+    elseif type(player.main_job_id) == 'number' and res.jobs[player.main_job_id] then
+      local short = res.jobs[player.main_job_id].ens or res.jobs[player.main_job_id].english_short or res.jobs[player.main_job_id].name
+      if type(short) == 'string' then MEMBER_JOB[player.name] = short:upper() end
     end
   end
 
-  if #rows == 0 and self_name then
-    local solo_job = resolve_job_tag(self_name)
-    rows[#rows+1] = { slot=0, name=self_name, debuffs=p0_labels_from_api(), job=solo_job }
+  local rows = {}
+  for _, name in ipairs(names) do
+    local labels = (player and player.name == name) and p0_labels_from_api() or labels_for_name(name)
+    rows[#rows+1] = { name = name, labels = labels }
   end
-
-  table.sort(rows, function(a,b) return a.slot < b.slot end)
   return rows
 end
 
-local function render_rows(rows)
-  local x, y     = settings.pos.x, settings.pos.y
-  local header_h = settings.header_height
-  local line_h   = settings.line_height
-
-  ui.header:pos(x, y)
-  ui.header:text('dbTracker')
-  ui.header:visible(true)
-
-  for i=1,6 do
-    local row = rows[i]
-    local base_y = y + header_h + (i-1)*line_h
-    local widgets = ui.rows[i]
-
-    if not widgets then
-      widgets = {
-        p    = make_text(x, base_y, settings.size, GREY,   false),
-        name = make_text(x+COL_P_PX+NAME_XPAD, base_y, settings.size, WHITE,  false),
-        debs = make_text(x+COL_P_PX+COL_NAME_PX, base_y, settings.size, WHITE, false),
-      }
-      ui.rows[i] = widgets
+-- Job refresh helper + timer
+local __job_refresh_last = 0
+local function refresh_jobs()
+  local changed = false
+  local player = windower.ffxi.get_player()
+  if player and player.name then
+    local before = MEMBER_JOB[player.name]
+    if type(player.main_job) == 'string' then
+      MEMBER_JOB[player.name] = player.main_job:upper()
+    elseif type(player.main_job_id) == 'number' and res.jobs[player.main_job_id] then
+      local short = res.jobs[player.main_job_id].ens or res.jobs[player.main_job_id].english_short or res.jobs[player.main_job_id].name
+      if type(short) == 'string' then MEMBER_JOB[player.name] = short:upper() end
     end
-
-    if row then
-		widgets.p:pos(x, base_y); widgets.p:text(('P%d'):format(row.slot)); widgets.p:visible(true)
-		widgets.name:pos(x+COL_P_PX+NAME_XPAD, base_y); widgets.name:text(row.name)
-		local role = row.job and JOB_ROLE[row.job] or nil
-		local col = (role and ROLE_COLORS[role]) or WHITE
-		widgets.name:color(col.r, col.g, col.b)
-		widgets.name:visible(true)
-
-		local s = colorize_labels(row.debuffs, RED)  -- or ORANGE
-		widgets.debs:pos(x+COL_P_PX+COL_NAME_PX, base_y)
-		widgets.debs:text(s)
-		widgets.debs:color(WHITE.r, WHITE.g, WHITE.b)  -- base color stays neutral
-		widgets.debs:visible(true)
-    else
-      widgets.p:visible(false); widgets.name:visible(false); widgets.debs:visible(false)
+    changed = changed or (before ~= MEMBER_JOB[player.name])
+  end
+  local party = windower.ffxi.get_party() or {}
+  for i=1,5 do
+    local m = party['p'..i]
+    if m and m.name then
+      local before = MEMBER_JOB[m.name]
+      if type(m.main_job) == 'string' then
+        MEMBER_JOB[m.name] = m.main_job:upper()
+      elseif type(m.main_job_id) == 'number' and res.jobs[m.main_job_id] then
+        local short = res.jobs[m.main_job_id].ens or res.jobs[m.main_job_id].english_short or res.jobs[m.main_job_id].name
+        if type(short) == 'string' then MEMBER_JOB[m.name] = short:upper() end
+      end
+      if before ~= MEMBER_JOB[m.name] then changed = true end
     end
+  end
+  if changed then
+    update_ui()
   end
 end
 
-local function sig(rows)
-  local parts = {}
-  for _,r in ipairs(rows) do parts[#parts+1] = r.slot..'|'..r.name..'|'..(r.job or '')..'|'..table.concat(r.debuffs,';') end
-  return table.concat(parts,'||')
-end
-
-local function update_ui()
-  local rows = collect_rows()
-  local s = sig(rows)
-  if s ~= last_sig or not last_rows then
-    render_rows(rows)
-    last_sig = s
-    last_rows = rows
+-- UI update
+function update_ui()
+  if not is_player_ready() then return end
+  if not ui.header then
+    ui.header = make_text(drag_state.x, drag_state.y, settings.size+1, GREY, true)
+    ui.header:text('dbTracker')
+    ui.header:draggable(true)
+    ui.header:visible(true)
   end
+
+  local rows = compute_rows()
+
+  -- ensure we have text objects for rows
+  for i=1, math.max(#rows, #ui.rows) do
+    if rows[i] and not ui.rows[i] then
+      local y = drag_state.y + i*ROW_H
+      local t_name = make_text(drag_state.x + PAD_X, y, settings.size, GREY, true)
+      local t_buffs= make_text(drag_state.x + PAD_X + COL_NAME_PX, y, settings.size, GREY, false)
+      t_name:visible(true); t_buffs:visible(true)
+      ui.rows[i] = { name=t_name, buffs=t_buffs }
+    elseif ui.rows[i] and not rows[i] then
+      ui.rows[i].name:visible(false); ui.rows[i].buffs:visible(false)
+      ui.rows[i] = nil
+    end
+  end
+
+  -- update content/colors
+	for i,r in ipairs(rows) do
+		local label = ("%d. %s"):format(i, r.name)
+		ui.rows[i].name:text(label)
+		set_text_rgb(ui.rows[i].name, name_color(r.name))
+		ui.rows[i].buffs:text(colorize_labels(r.labels))
+	end
 end
 
-windower.register_event('prerender', function()
-  update_ui()
-  if ui and ui.header then
-    local hx = ui.header:pos_x()
-    local hy = ui.header:pos_y()
-    if hx ~= drag_state.x or hy ~= drag_state.y then
-      settings.pos.x, settings.pos.y = hx, hy
-      drag_state.x, drag_state.y = hx, hy
-      if last_rows then render_rows(last_rows) end
-      config.save(settings)
+-- Pull a short job code (e.g. "WAR") from a 0x0DD packet
+local function set_member_job_from_dd(packet)
+    if not packet or type(packet) ~= 'table' then return end
+    local name = packet['Name']
+    if not name or name == '' then return end
+
+    -- Try all common keys the Windower packet may use
+    local num = packet['Job'] or packet['Main job'] or packet['Main Job']
+                 or packet['Main Job ID'] or packet['MJob'] or packet['MainJob']
+    local str = packet['main_job'] or packet['mjob'] or packet['job'] or packet['Job Abbr']
+
+    if type(num) == 'number' and num > 0 and res.jobs[num] then
+        local short = res.jobs[num].ens or res.jobs[num].english_short or res.jobs[num].name
+        if type(short) == 'string' and #short > 0 then
+            MEMBER_JOB[name] = short:upper()
+            return
+        end
     end
+
+    if type(str) == 'string' and #str > 0 then
+        MEMBER_JOB[name] = str:upper()
+    end
+end
+
+------------------------------------------------------------
+-- Drag window
+------------------------------------------------------------
+windower.register_event('mouse', function(type, x, y, delta, blocked)
+  if not ui.header then return false end
+  -- type 0 = LMB down, 2 = drag, 3 = release
+  if type == 0 and ui.header:hover(x,y) then
+	local hx, hy = ui.header:pos()
+	ui.__drag = { ox = x - hx, oy = y - hy }
+    return true
+  elseif type == 2 and ui.__drag then
+    drag_state.x = x - ui.__drag.ox
+    drag_state.y = y - ui.__drag.oy
+    ui.header:pos(drag_state.x, drag_state.y)
+    for i, row in ipairs(ui.rows) do
+      if row and row.name and row.buffs then
+        local yy = drag_state.y + i*ROW_H
+        row.name:pos(drag_state.x + PAD_X, yy)
+        row.buffs:pos(drag_state.x + PAD_X + COL_NAME_PX, yy)
+      end
+    end
+    return true
+  elseif type == 3 and ui.__drag then
+    ui.__drag = nil
+    settings.pos.x = drag_state.x
+    settings.pos.y = drag_state.y
+    config.save(settings)
+    return true
+  end
+  return false
+end)
+
+------------------------------------------------------------
+-- Incoming chunk handling 
+------------------------------------------------------------
+windower.register_event('incoming chunk', function(id, data)
+  if id == 0x0DD then
+    local packet = packets.parse('incoming', data)
+    if packet and packet['Name'] then
+      if not member_table:contains(packet['Name']) then
+        member_table:append(packet['Name'])
+        member_table[packet['Name']] = packet['ID']
+      else
+        member_table[packet['Name']] = packet['ID']
+      end
+      if packet['ID'] and packet['ID'] ~= 0 then
+        _id_to_name[packet['ID']] = packet['Name']
+      end
+	   set_member_job_from_dd(packet)
+    end
+    coroutine.schedule(buff_sort, 0.05)
+  end
+
+  if id == 0x076 then
+    parse_buffs(data)
+  end
+
+  if id == 0x0B then
+    zoning_bool = true
+    buff_sort()
+  elseif id == 0x0A and zoning_bool then
+    zoning_bool = false
+    coroutine.schedule(buff_sort, 10)
   end
 end)
 
-windower.register_event('load', function()
-    if ui.header then return end -- prevent double init if load fires twice
-    ui.header = make_text(settings.pos.x, settings.pos.y, settings.size+1, GREY, true)
-    ui.header:draggable(true)
-    ui.header:visible(true)
-    update_ui()
+------------------------------------------------------------
+-- Events for P0 buffs and job changes / heartbeat for party job changes
+------------------------------------------------------------
+windower.register_event('gain buff', function()
+  buff_sort()
+end)
 
-    -- Seed your own job into MEMBER_JOB so color shows right away
-    local player = windower.ffxi.get_player()
-    if player and player.name then
-        local mj = player.main_job_id or player.main_job or player.job_id or player.Job
-        if type(mj) == 'number' and res.jobs[mj] and res.jobs[mj].ens then
-            MEMBER_JOB[player.name] = res.jobs[mj].ens
-        elseif type(mj) == 'string' then
-            MEMBER_JOB[player.name] = mj
+windower.register_event('lose buff', function()
+  buff_sort()
+end)
+
+windower.register_event('job change', function()
+  refresh_jobs()
+end)
+
+windower.register_event('prerender', function()
+  local now = os.clock()
+  if now - __job_refresh_last > 0.1 then
+    __job_refresh_last = now
+    refresh_jobs()
+  end
+end)
+
+------------------------------------------------------------
+-- buff_sort
+------------------------------------------------------------
+function buff_sort()
+  refresh_jobs()
+  update_ui()
+end
+
+------------------------------------------------------------
+-- Load / zone events
+------------------------------------------------------------
+windower.register_event('load', function() -- Create member table if addon loads while already in PT
+	if not windower.ffxi.get_info().logged_in then return end
+
+  if not is_player_ready() then
+    -- try again when ready: hydrate buffs if cached; otherwise just paint
+    coroutine.schedule(function()
+      if is_player_ready() then
+        local data = windower.packets.last_incoming(0x076)
+        if data then parse_buffs(data) else buff_sort() end
+      end
+    end, 0.15)
+    coroutine.schedule(function()
+      if is_player_ready() then buff_sort() end
+    end, 0.50)
+    return
+  end
+
+    local party  = windower.ffxi.get_party() or {}
+    -- Seed member_table and jobs for p1..p5
+    for i = 1, 5 do
+        local m = party['p'..i]
+        if m and m.mob and not m.mob.is_npc and m.name then
+            if not member_table:contains(m.name) then
+                member_table:append(m.name)
+            end
+            member_table[m.name] = m.mob.id
+            -- seed job from whatever the party API has now
+            if type(m.main_job) == 'string' then
+                MEMBER_JOB[m.name] = m.main_job:upper()
+            elseif type(m.main_job_id) == 'number' and res.jobs[m.main_job_id] then
+                local short = res.jobs[m.main_job_id].ens or res.jobs[m.main_job_id].english_short or res.jobs[m.main_job_id].name
+                if type(short) == 'string' then
+                    MEMBER_JOB[m.name] = short:upper()
+                end
+            end
         end
     end
+
+    -- Seed your own job too (redundant but safe)
+    local player = windower.ffxi.get_player()
+    if player and player.name then
+        if type(player.main_job) == 'string' then
+            MEMBER_JOB[player.name] = player.main_job:upper()
+        elseif type(player.main_job_id) == 'number' and res.jobs[player.main_job_id] then
+            local short = res.jobs[player.main_job_id].ens or res.jobs[player.main_job_id].english_short or res.jobs[player.main_job_id].name
+            if type(short) == 'string' then
+                MEMBER_JOB[player.name] = short:upper()
+            end
+        end
+    end
+
+    -- Hydrate buffs from the most recent 0x076 if Windower has one cached
+    local data = windower.packets.last_incoming(0x076)
+    if data then
+        parse_buffs(data)      -- your parse_buffs already calls buff_sort()
+    else
+        buff_sort()            -- otherwise at least paint once
+    end
+
+    -- Tiny follow-up repaint so colors catch late job fields
+    coroutine.schedule(buff_sort, 0.05)
+end)
+
+windower.register_event('login', function()
+  coroutine.schedule(buff_sort, 0.10)
+  coroutine.schedule(buff_sort, 0.50)
+end)
+
+windower.register_event('zone change', function()
+  LAST_CONFIRMED = {}
 end)
