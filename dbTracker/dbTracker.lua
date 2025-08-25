@@ -511,9 +511,9 @@ windower.register_event('load', function() -- Create member table if addon loads
     -- Hydrate buffs from the most recent 0x076 if Windower has one cached
     local data = windower.packets.last_incoming(0x076)
     if data then
-        parse_buffs(data)      -- your parse_buffs already calls buff_sort()
+        parse_buffs(data)      
     else
-        buff_sort()            -- otherwise at least paint once
+        buff_sort()            
     end
 
     -- Tiny follow-up repaint so colors catch late job fields
