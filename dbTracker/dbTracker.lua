@@ -370,7 +370,7 @@ windower.register_event('incoming chunk', function(id, data)
       end
 	   set_member_job_from_dd(packet)
     end
-    coroutine.schedule(buff_sort, 0.05)
+    coroutine.schedule(buff_sort, 0.5)
   end
 
   if id == 0x076 then
@@ -508,7 +508,7 @@ windower.register_event('load', function() -- Create member table if addon loads
     end
 
     -- Tiny follow-up repaint so colors catch late job fields
-    coroutine.schedule(buff_sort, 0.05)
+    coroutine.schedule(buff_sort, 0.5)
 end)
 
 windower.register_event('login', function()
