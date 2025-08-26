@@ -126,7 +126,7 @@ end
 local settings = config.load({
   pos   = {x=920, y=360},
   font  = 'Consolas',
-  size  = 12,
+  size  = 10,
   p0_on_top = true,
 })
 
@@ -140,6 +140,9 @@ local RED    = {r=230, g=90,  b=90}
 
 local ui = { header=nil, rows={} }
 local drag_state = { x = settings.pos.x, y = settings.pos.y }
+local __last_header_x, __last_header_y = drag_state.x, drag_state.y
+local __last_move_at = 0
+local __drag_settle_time = 0.25
 
 local function make_text(x, y, size, color, bold)
   color = color or ROLE_COLORS.default
@@ -350,38 +353,6 @@ local function set_member_job_from_dd(packet)
 end
 
 ------------------------------------------------------------
--- Drag window
-------------------------------------------------------------
-windower.register_event('mouse', function(type, x, y, delta, blocked)
-  if not ui.header then return false end
-  -- type 0 = LMB down, 2 = drag, 3 = release
-  if type == 0 and ui.header:hover(x,y) then
-	local hx, hy = ui.header:pos()
-	ui.__drag = { ox = x - hx, oy = y - hy }
-    return true
-  elseif type == 2 and ui.__drag then
-    drag_state.x = x - ui.__drag.ox
-    drag_state.y = y - ui.__drag.oy
-    ui.header:pos(drag_state.x, drag_state.y)
-    for i, row in ipairs(ui.rows) do
-      if row and row.name and row.buffs then
-        local yy = drag_state.y + i*ROW_H
-        row.name:pos(drag_state.x + PAD_X, yy)
-        row.buffs:pos(drag_state.x + PAD_X + COL_NAME_PX, yy)
-      end
-    end
-    return true
-  elseif type == 3 and ui.__drag then
-    ui.__drag = nil
-    settings.pos.x = drag_state.x
-    settings.pos.y = drag_state.y
-    config.save(settings)
-    return true
-  end
-  return false
-end)
-
-------------------------------------------------------------
 -- Incoming chunk handling 
 ------------------------------------------------------------
 windower.register_event('incoming chunk', function(id, data)
@@ -436,7 +407,34 @@ windower.register_event('prerender', function()
     __job_refresh_last = now
     refresh_jobs()
   end
+
+  -- NEW: keep rows anchored to the header while dragging, and persist after it settles
+  if ui.header then
+    local hx, hy = ui.header:pos()
+    if hx ~= __last_header_x or hy ~= __last_header_y then
+      -- header moved: follow it
+      __last_header_x, __last_header_y = hx, hy
+      __last_move_at = now
+      drag_state.x, drag_state.y = hx, hy
+
+      for i, row in ipairs(ui.rows) do
+        if row and row.name and row.buffs then
+          local yy = hy + i * ROW_H
+          row.name:pos(hx + PAD_X, yy)
+          row.buffs:pos(hx + PAD_X + COL_NAME_PX, yy)
+        end
+      end
+    elseif __last_move_at > 0 and (now - __last_move_at) >= __drag_settle_time then
+      -- save once after movement stops
+      __last_move_at = 0
+      if settings.pos.x ~= drag_state.x or settings.pos.y ~= drag_state.y then
+        settings.pos.x, settings.pos.y = drag_state.x, drag_state.y
+        config.save(settings)
+      end
+    end
+  end
 end)
+
 
 ------------------------------------------------------------
 -- buff_sort
@@ -451,8 +449,9 @@ end
 ------------------------------------------------------------
 windower.register_event('load', function() -- Create member table if addon loads while already in PT
 	if not windower.ffxi.get_info().logged_in then return end
-
-  if not is_player_ready() then
+	drag_state.x, drag_state.y = settings.pos.x, settings.pos.y
+	
+	if not is_player_ready() then
     -- try again when ready: hydrate buffs if cached; otherwise just paint
     coroutine.schedule(function()
       if is_player_ready() then
@@ -465,7 +464,7 @@ windower.register_event('load', function() -- Create member table if addon loads
     end, 0.50)
     return
   end
-
+	
     local party  = windower.ffxi.get_party() or {}
     -- Seed member_table and jobs for p1..p5
     for i = 1, 5 do
@@ -513,6 +512,7 @@ windower.register_event('load', function() -- Create member table if addon loads
 end)
 
 windower.register_event('login', function()
+  drag_state.x, drag_state.y = settings.pos.x, settings.pos.y
   coroutine.schedule(buff_sort, 0.10)
   coroutine.schedule(buff_sort, 0.50)
 end)
