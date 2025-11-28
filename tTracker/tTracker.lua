@@ -338,27 +338,6 @@ windower.register_event('incoming chunk', function(id, data)
 
         replace_readying_line(actor_name, complete_line)
 
-    -- === WEAPONSKILL FINISH (Category 3) ===
-    elseif p.Category == 3 then
-        local ws = res.weapon_skills[p.Param]
-        local ws_name = ws and ws.name or "Unknown Weaponskill"
-        local element_id = ws and ws.element
-
-        if element_id == 6 and not (unique_elements.light_weaponskills or {})[ws_name] then
-            element_id = nil
-        end
-
-        local r, g, b = unpack(element_colors.default)
-        if element_id and element_colors[element_id] then
-            r, g, b = unpack(element_colors[element_id])
-        end
-
-        local complete_line =
-            ("\\cs(200,200,40)%s completes:\\cr \\cs(%d,%d,%d)%s\\cr"):
-            format(actor_name, r, g, b, ws_name)
-
-        replace_readying_line(actor_name, complete_line)
-
     -- === SPELL FINISH (Category 4) ===
     elseif p.Category == 4 then
         local spell = res.spells[p.Param]
