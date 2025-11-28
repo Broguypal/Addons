@@ -11,6 +11,7 @@
   - Monster abilities being readied by your target (with optional manual element coloring)
   - Weapon skills being used by your player/trust target (color-coded by element)
   - Spells and TP moves interrupted
+  - Spells and TP moves completed
 - Fully draggable overlay box
 - Customizable:
   - Display mode: always, combat-only, or only when actions occur
@@ -80,4 +81,4 @@ Note:
 ## Author
 
 - **Name:** Broguypal
-- **Version:** 1.6
+- **Version:** 2.0

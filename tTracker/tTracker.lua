@@ -1,6 +1,6 @@
 _addon.name = 'tTracker'
 _addon.author = 'Broguypal'
-_addon.version = '1.6'
+_addon.version = '2.0'
 _addon.commands = {'ttracker', 'track'}
 
 packets = require('packets')
@@ -238,18 +238,18 @@ windower.register_event('incoming chunk', function(id, data)
         local spell = res.spells[param]
         local spell_name = spell and spell.name or ("Unknown Spell")
         local element_id
-			if spell then
-				for element_name, spell_table in pairs(unique_elements) do
-					if spell_table[spell.name] then
-						element_id = ({
-							fire = 0, ice = 1, wind = 2, earth = 3,
-							thunder = 4, water = 5, light = 6, dark = 7
-						})[element_name]
-						break
-					end
-				end
-				element_id = element_id or spell.element
-			end
+        if spell then
+            for element_name, spell_table in pairs(unique_elements) do
+                if spell_table[spell.name] then
+                    element_id = ({
+                        fire = 0, ice = 1, wind = 2, earth = 3,
+                        thunder = 4, water = 5, light = 6, dark = 7
+                    })[element_name]
+                    break
+                end
+            end
+            element_id = element_id or spell.element
+        end
         local r, g, b = unpack(element_colors.default)
         if element_id and element_colors[element_id] then
             r, g, b = unpack(element_colors[element_id])
@@ -259,62 +259,138 @@ windower.register_event('incoming chunk', function(id, data)
             local interrupt_line = ("\\cs(100,100,100)%s's %s was interrupted.\\cr"):format(actor_name, spell_name)
             replace_casting_line(actor_name, spell_name, interrupt_line)
         elseif message_id == 3 or message_id == 327 then
-            add_line(("\\cs(180,180,255)%s is casting:\\cr \\cs(%d,%d,%d)%s\\cr"):format(actor_name, r, g, b, spell_name))
+            add_line(("\\cs(180,180,255)%s is casting:\\cr \\cs(%d,%d,%d)%s\\cr"):
+                format(actor_name, r, g, b, spell_name))
         end
 
     -- === TP/Ready moves (Category 7) ===
     elseif p.Category == 7 then
-		if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
-			local mob_ability = res.monster_abilities[param]
-			local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
-			local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
+        if actor.spawn_type == 2 or actor.spawn_type == 16 then -- (2 = pets/npcs, 16 = Monsters)
+            local mob_ability = res.monster_abilities[param]
+            local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
+            local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
 
-			if message_id == 0 then
-				local interrupt_line = ("\\cs(100,100,100)%s's TP move was interrupted.\\cr"):format(actor_name)
-				replace_readying_line(actor_name, interrupt_line)
-			else
-				local r, g, b = 255, 192, 64 -- default
+            if message_id == 0 then
+                local interrupt_line = ("\\cs(100,100,100)%s's TP move was interrupted.\\cr"):
+                    format(actor_name)
+                replace_readying_line(actor_name, interrupt_line)
+            else
+                local r, g, b = 255, 192, 64 -- default
 
-				if mob_ability then
-					-- Color using your monster tables
-					for element, ability_table in pairs(monster_elements) do
-						if ability_table[ability_name] then
-							local color = monster_element_colors[element]
-							if color then r, g, b = unpack(color) end
-							break
-						end
-					end
-				elseif ws then
-					-- Monster used a player WS: color by WS element (same logic as players)
-					local element_id = ws.element
-					if element_id == 6 and not (unique_elements.light_weaponskills or {})[ability_name] then
-						element_id = nil -- override false "Light" classification
-					end
-					if element_id and element_colors[element_id] then
-						r, g, b = unpack(element_colors[element_id])
-					end
-				end
+                if mob_ability then
+                    for element, ability_table in pairs(monster_elements) do
+                        if ability_table[ability_name] then
+                            local color = monster_element_colors[element]
+                            if color then r, g, b = unpack(color) end
+                            break
+                        end
+                    end
+                elseif ws then
+                    local element_id = ws.element
+                    if element_id == 6 and not (unique_elements.light_weaponskills or {})[ability_name] then
+                        element_id = nil
+                    end
+                    if element_id and element_colors[element_id] then
+                        r, g, b = unpack(element_colors[element_id])
+                    end
+                end
 
-				add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(%d,%d,%d)%s\\cr"):format(actor_name, r, g, b, ability_name))
-			end
+                add_line(("\\cs(255,255,64)%s readies:\\cr \\cs(%d,%d,%d)%s\\cr"):
+                    format(actor_name, r, g, b, ability_name))
+            end
 
-		elseif actor.spawn_type == 1 or actor.spawn_type == 14 or actor.spawn_type == 13 then --(1 = other players, 14 = trusts, 13 = self)
-			local ws = res.weapon_skills[param]
-			local ws_name = ws and ws.name or ("Unknown Weaponskill")
-			local element_id = ws and ws.element
-				if element_id == 6 and not (unique_elements.light_weaponskills or {})[ws_name] then
-					element_id = nil -- override false "Light" classification
-				end
-			
-			local r, g, b = unpack(element_colors.default)
-			if element_id and element_colors[element_id] then
-				r, g, b = unpack(element_colors[element_id])
-			end
-			
-			add_line(("\\cs(255,255,64)%s uses:\\cr \\cs(%d,%d,%d)%s\\cr"):format(actor_name, r, g, b, ws_name))
-		end
+        elseif actor.spawn_type == 1 or actor.spawn_type == 14 or actor.spawn_type == 13 then -- (1 = other players, 14 = trusts, 13 = self)
+            local ws = res.weapon_skills[param]
+            local ws_name = ws and ws.name or ("Unknown Weaponskill")
+            local element_id = ws and ws.element
+            if element_id == 6 and not (unique_elements.light_weaponskills or {})[ws_name] then
+                element_id = nil
+            end
+
+            local r, g, b = unpack(element_colors.default)
+            if element_id and element_colors[element_id] then
+                r, g, b = unpack(element_colors[element_id])
+            end
+
+            add_line(("\\cs(255,255,64)%s uses:\\cr \\cs(%d,%d,%d)%s\\cr"):
+                format(actor_name, r, g, b, ws_name))
+        end
+
+    -- === TP MOVE FINISH (Category 11) ===
+    elseif p.Category == 11 then
+        local mob_ability = res.monster_abilities[p.Param]
+        local ability_name = mob_ability and mob_ability.name or "Unknown TP Move"
+
+        local r, g, b = 255, 192, 64
+        if mob_ability then
+            for element, ability_table in pairs(monster_elements) do
+                if ability_table[ability_name] then
+                    local color = monster_element_colors[element]
+                    if color then r, g, b = unpack(color) end
+                    break
+                end
+            end
+        end
+
+        local complete_line =
+            ("\\cs(200,200,40)%s completes:\\cr \\cs(%d,%d,%d)%s\\cr"):
+            format(actor_name, r, g, b, ability_name)
+
+        replace_readying_line(actor_name, complete_line)
+
+    -- === WEAPONSKILL FINISH (Category 3) ===
+    elseif p.Category == 3 then
+        local ws = res.weapon_skills[p.Param]
+        local ws_name = ws and ws.name or "Unknown Weaponskill"
+        local element_id = ws and ws.element
+
+        if element_id == 6 and not (unique_elements.light_weaponskills or {})[ws_name] then
+            element_id = nil
+        end
+
+        local r, g, b = unpack(element_colors.default)
+        if element_id and element_colors[element_id] then
+            r, g, b = unpack(element_colors[element_id])
+        end
+
+        local complete_line =
+            ("\\cs(200,200,40)%s completes:\\cr \\cs(%d,%d,%d)%s\\cr"):
+            format(actor_name, r, g, b, ws_name)
+
+        replace_readying_line(actor_name, complete_line)
+
+    -- === SPELL FINISH (Category 4) ===
+    elseif p.Category == 4 then
+        local spell = res.spells[p.Param]
+        local spell_name = spell and spell.name or ("Unknown Spell")
+
+        local element_id
+        if spell then
+            for element_name, spell_table in pairs(unique_elements) do
+                if spell_table[spell_name] then
+                    element_id = ({
+                        fire = 0, ice = 1, wind = 2, earth = 3,
+                        thunder = 4, water = 5, light = 6, dark = 7
+                    })[element_name]
+                    break
+                end
+            end
+            element_id = element_id or spell.element
+        end
+
+        local r, g, b = unpack(element_colors.default)
+        if element_id and element_colors[element_id] then
+            r, g, b = unpack(element_colors[element_id])
+        end
+
+        local complete_line =
+            ("\\cs(120,120,220)%s completed:\\cr \\cs(%d,%d,%d)%s\\cr"):
+                format(actor_name, r, g, b, spell_name)
+
+        replace_casting_line(actor_name, spell_name, complete_line)
     end
 end)
+
 
 -- Command handler: //track mode [always|combat|action]
 windower.register_event('addon command', function(cmd, ...)
