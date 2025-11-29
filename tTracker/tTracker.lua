@@ -263,7 +263,11 @@ windower.register_event('incoming chunk', function(id, data)
 
     -- === SPELL FINISH (Category 4) ===
     elseif p.Category == 4 then
-        local spell = res.spells[p.Param]
+		if p.Param == 0 then
+			return
+		end
+		
+		local spell = res.spells[p.Param]
         local spell_name = spell and spell.name or ("Unknown Spell")
 
         local element_id
