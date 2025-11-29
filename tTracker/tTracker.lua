@@ -155,7 +155,6 @@ local function replace_casting_line(actor_name, spell_name, new_text)
             return
         end
     end
-    -- Fallback if no match found
     add_line(new_text)
 end
 
@@ -167,7 +166,6 @@ local function replace_readying_line(actor_name, new_text)
             return
         end
     end
-    -- Fallback
     add_line(new_text)
 end
 
@@ -218,7 +216,7 @@ windower.register_event('prerender', function()
     end
 end)
 
--- Handle incoming casting/readies
+-- Handle casts/tp moves
 windower.register_event('incoming chunk', function(id, data)
     if id ~= 0x28 then return end
 
@@ -262,6 +260,36 @@ windower.register_event('incoming chunk', function(id, data)
             add_line(("\\cs(180,180,255)%s is casting:\\cr \\cs(%d,%d,%d)%s\\cr"):
                 format(actor_name, r, g, b, spell_name))
         end
+
+    -- === SPELL FINISH (Category 4) ===
+    elseif p.Category == 4 then
+        local spell = res.spells[p.Param]
+        local spell_name = spell and spell.name or ("Unknown Spell")
+
+        local element_id
+        if spell then
+            for element_name, spell_table in pairs(unique_elements) do
+                if spell_table[spell_name] then
+                    element_id = ({
+                        fire = 0, ice = 1, wind = 2, earth = 3,
+                        thunder = 4, water = 5, light = 6, dark = 7
+                    })[element_name]
+                    break
+                end
+            end
+            element_id = element_id or spell.element
+        end
+
+        local r, g, b = unpack(element_colors.default)
+        if element_id and element_colors[element_id] then
+            r, g, b = unpack(element_colors[element_id])
+        end
+
+        local complete_line =
+            ("\\cs(120,120,220)%s completed:\\cr \\cs(%d,%d,%d)%s\\cr"):
+                format(actor_name, r, g, b, spell_name)
+
+        replace_casting_line(actor_name, spell_name, complete_line)
 
     -- === TP/Ready moves (Category 7) ===
     elseif p.Category == 7 then
@@ -337,36 +365,6 @@ windower.register_event('incoming chunk', function(id, data)
             format(actor_name, r, g, b, ability_name)
 
         replace_readying_line(actor_name, complete_line)
-
-    -- === SPELL FINISH (Category 4) ===
-    elseif p.Category == 4 then
-        local spell = res.spells[p.Param]
-        local spell_name = spell and spell.name or ("Unknown Spell")
-
-        local element_id
-        if spell then
-            for element_name, spell_table in pairs(unique_elements) do
-                if spell_table[spell_name] then
-                    element_id = ({
-                        fire = 0, ice = 1, wind = 2, earth = 3,
-                        thunder = 4, water = 5, light = 6, dark = 7
-                    })[element_name]
-                    break
-                end
-            end
-            element_id = element_id or spell.element
-        end
-
-        local r, g, b = unpack(element_colors.default)
-        if element_id and element_colors[element_id] then
-            r, g, b = unpack(element_colors[element_id])
-        end
-
-        local complete_line =
-            ("\\cs(120,120,220)%s completed:\\cr \\cs(%d,%d,%d)%s\\cr"):
-                format(actor_name, r, g, b, spell_name)
-
-        replace_casting_line(actor_name, spell_name, complete_line)
     end
 end)
 
