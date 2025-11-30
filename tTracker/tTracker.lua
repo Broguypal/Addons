@@ -263,11 +263,7 @@ windower.register_event('incoming chunk', function(id, data)
 
     -- === SPELL FINISH (Category 4) ===
     elseif p.Category == 4 then
-		if p.Param == 0 then
-			return
-		end
-		
-		local spell = res.spells[p.Param]
+        local spell = res.spells[p.Param]
         local spell_name = spell and spell.name or ("Unknown Spell")
 
         local element_id
@@ -352,7 +348,15 @@ windower.register_event('incoming chunk', function(id, data)
     elseif p.Category == 11 then
         local mob_ability = res.monster_abilities[p.Param]
         local ability_name = mob_ability and mob_ability.name or "Unknown TP Move"
-
+		
+		if ability_name and ability_name:lower():match("autoattack") then
+			return
+		end
+		
+		if ability_name == "Unknown TP Move" then
+			return
+		end
+		
         local r, g, b = 255, 192, 64
         if mob_ability then
             for element, ability_table in pairs(monster_elements) do
