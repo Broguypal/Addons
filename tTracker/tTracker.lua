@@ -346,25 +346,40 @@ windower.register_event('incoming chunk', function(id, data)
 
     -- === TP MOVE FINISH (Category 11) ===
     elseif p.Category == 11 then
+
+        -- Look up monster abilities and WS
         local mob_ability = res.monster_abilities[p.Param]
-        local ability_name = mob_ability and mob_ability.name or "Unknown TP Move"
-		
-		if ability_name and ability_name:lower():match("autoattack") then
-			return
-		end
-		
-		if ability_name == "Unknown TP Move" then
-			return
-		end
-		
+        local ws          = mob_ability and nil or res.weapon_skills[p.Param]
+
+        -- Ignore WS completions entirely
+        if ws and not mob_ability then
+            return
+        end
+
+        -- Must be an actual monster ability
+        if not mob_ability then
+            return
+        end
+
+        local ability_name = mob_ability.name or ""
+
+        -------------------------------------------------------
+        -- AUTO-ATTACK NAME FILTER (English only)
+        -------------------------------------------------------
+        -- Ignore any ability whose name *begins with* "Auto"
+        if ability_name:lower():find("^auto") then
+            return
+        end
+
+        -------------------------------------------------------
+        -- ELEMENT COLORING
+        -------------------------------------------------------
         local r, g, b = 255, 192, 64
-        if mob_ability then
-            for element, ability_table in pairs(monster_elements) do
-                if ability_table[ability_name] then
-                    local color = monster_element_colors[element]
-                    if color then r, g, b = unpack(color) end
-                    break
-                end
+        for element, ability_table in pairs(monster_elements) do
+            if ability_table[ability_name] then
+                local color = monster_element_colors[element]
+                if color then r, g, b = unpack(color) end
+                break
             end
         end
 
