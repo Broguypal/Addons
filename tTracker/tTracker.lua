@@ -327,22 +327,35 @@ windower.register_event('incoming chunk', function(id, data)
                     format(actor_name, r, g, b, ability_name))
             end
 
-        elseif actor.spawn_type == 1 or actor.spawn_type == 14 or actor.spawn_type == 13 then -- (1 = other players, 14 = trusts, 13 = self)
-            local ws = res.weapon_skills[param]
-            local ws_name = ws and ws.name or ("Unknown Weaponskill")
-            local element_id = ws and ws.element
-            if element_id == 6 and not (unique_elements.light_weaponskills or {})[ws_name] then
-                element_id = nil
-            end
+		elseif actor.spawn_type == 1 or actor.spawn_type == 14 or actor.spawn_type == 13 then
+			local ws = res.weapon_skills[param]
+			local mob_ability = (not ws) and res.monster_abilities[param] or nil
+			local ability_name = (ws and ws.name) or (mob_ability and mob_ability.name) or "Unknown Weaponskill"
 
-            local r, g, b = unpack(element_colors.default)
-            if element_id and element_colors[element_id] then
-                r, g, b = unpack(element_colors[element_id])
-            end
+			local r, g, b = unpack(element_colors.default)
 
-            add_line(("\\cs(255,255,64)%s uses:\\cr \\cs(%d,%d,%d)%s\\cr"):
-                format(actor_name, r, g, b, ws_name))
-        end
+			if ws then
+				local element_id = ws.element
+				if element_id == 6 and not (unique_elements.light_weaponskills or {})[ability_name] then
+					element_id = nil
+				end
+				if element_id and element_colors[element_id] then
+					r, g, b = unpack(element_colors[element_id])
+				end
+
+			elseif mob_ability then
+				for element, ability_table in pairs(monster_elements) do
+					if ability_table[ability_name] then
+						local color = monster_element_colors[element]
+						if color then r, g, b = unpack(color) end
+						break
+					end
+				end
+			end
+
+			add_line(("\\cs(255,255,64)%s uses:\\cr \\cs(%d,%d,%d)%s\\cr"):
+				format(actor_name, r, g, b, ability_name))
+		end
 
     -- === TP MOVE FINISH (Category 11) ===
     elseif p.Category == 11 then
