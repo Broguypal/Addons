@@ -235,6 +235,9 @@ windower.register_event('incoming chunk', function(id, data)
     if p.Category == 8 then
         local spell = res.spells[param]
         local spell_name = spell and spell.name or ("Unknown Spell")
+		if spell_name == "Unknown Spell" then
+			return
+		end
         local element_id
         if spell then
             for element_name, spell_table in pairs(unique_elements) do
@@ -265,7 +268,9 @@ windower.register_event('incoming chunk', function(id, data)
     elseif p.Category == 4 then
         local spell = res.spells[p.Param]
         local spell_name = spell and spell.name or ("Unknown Spell")
-
+		if spell_name == "Unknown Spell" then
+			return
+		end
         local element_id
         if spell then
             for element_name, spell_table in pairs(unique_elements) do
@@ -285,6 +290,16 @@ windower.register_event('incoming chunk', function(id, data)
             r, g, b = unpack(element_colors[element_id])
         end
 
+		local found = false
+		for _, entry in ipairs(lines) do
+			if entry.text:find(actor_name .. ' is casting:') then
+				found = true
+				break
+			end
+		end
+		if not found then 
+			return 
+		end
         local complete_line =
             ("\\cs(120,120,220)%s completed:\\cr \\cs(%d,%d,%d)%s\\cr"):
                 format(actor_name, r, g, b, spell_name)
@@ -297,7 +312,9 @@ windower.register_event('incoming chunk', function(id, data)
             local mob_ability = res.monster_abilities[param]
             local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
             local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
-
+			if ability_name == "Unknown TP Move" then
+				return
+			end
             if message_id == 0 then
                 local interrupt_line = ("\\cs(100,100,100)%s's TP move was interrupted.\\cr"):
                     format(actor_name)
@@ -332,6 +349,10 @@ windower.register_event('incoming chunk', function(id, data)
 			local mob_ability = (not ws) and res.monster_abilities[param] or nil
 			local ability_name = (ws and ws.name) or (mob_ability and mob_ability.name) or "Unknown Weaponskill"
 
+			if ability_name == "Unknown Weaponskill" then
+				return
+			end
+
 			local r, g, b = unpack(element_colors.default)
 
 			if ws then
@@ -359,34 +380,20 @@ windower.register_event('incoming chunk', function(id, data)
 
     -- === TP MOVE FINISH (Category 11) ===
     elseif p.Category == 11 then
-
-        -- Look up monster abilities and WS
         local mob_ability = res.monster_abilities[p.Param]
         local ws          = mob_ability and nil or res.weapon_skills[p.Param]
-
-        -- Ignore WS completions entirely
         if ws and not mob_ability then
             return
         end
-
-        -- Must be an actual monster ability
         if not mob_ability then
             return
         end
 
         local ability_name = mob_ability.name or ""
-
-        -------------------------------------------------------
-        -- AUTO-ATTACK NAME FILTER (English only)
-        -------------------------------------------------------
-        -- Ignore any ability whose name *begins with* "Auto"
+        -- Ignore any ability whose name *begins with* "Auto" (Since some mobs use Autoattack # or Auto Attach # as special abilities)
         if ability_name:lower():find("^auto") then
             return
         end
-
-        -------------------------------------------------------
-        -- ELEMENT COLORING
-        -------------------------------------------------------
         local r, g, b = 255, 192, 64
         for element, ability_table in pairs(monster_elements) do
             if ability_table[ability_name] then
@@ -395,7 +402,16 @@ windower.register_event('incoming chunk', function(id, data)
                 break
             end
         end
-
+		local found = false
+		for _, entry in ipairs(lines) do
+			if entry.text:find(actor_name .. ' readies:') then
+				found = true
+				break
+			end
+		end
+		if not found then 
+			return 
+		end
         local complete_line =
             ("\\cs(200,200,40)%s completes:\\cr \\cs(%d,%d,%d)%s\\cr"):
             format(actor_name, r, g, b, ability_name)
