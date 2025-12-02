@@ -147,9 +147,9 @@ local function add_line(text)
     update_display()
 end
 
-local function replace_casting_line(actor_name, spell_name, new_text)
+local function replace_casting_line(actor_name, new_text)
     for i, entry in ipairs(lines) do
-        if entry.text:find(actor_name .. ' is casting:') and entry.text:find(spell_name) then
+        if entry.text:find(actor_name .. ' is casting:') then
             lines[i] = {text = new_text, time = os.clock()}
             update_display()
             return
@@ -258,7 +258,7 @@ windower.register_event('incoming chunk', function(id, data)
 
         if message_id == 0 then
             local interrupt_line = ("\\cs(100,100,100)%s's %s was interrupted.\\cr"):format(actor_name, spell_name)
-            replace_casting_line(actor_name, spell_name, interrupt_line)
+            replace_casting_line(actor_name, interrupt_line)
         elseif message_id == 3 or message_id == 327 then
             add_line(("\\cs(180,180,255)%s is casting:\\cr \\cs(%d,%d,%d)%s\\cr"):
                 format(actor_name, r, g, b, spell_name))
@@ -304,7 +304,7 @@ windower.register_event('incoming chunk', function(id, data)
             ("\\cs(120,120,220)%s completed:\\cr \\cs(%d,%d,%d)%s\\cr"):
                 format(actor_name, r, g, b, spell_name)
 
-        replace_casting_line(actor_name, spell_name, complete_line)
+        replace_casting_line(actor_name, complete_line)
 
     -- === TP/Ready moves (Category 7) ===
     elseif p.Category == 7 then
