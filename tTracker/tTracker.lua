@@ -312,7 +312,7 @@ windower.register_event('incoming chunk', function(id, data)
             local mob_ability = res.monster_abilities[param]
             local ws          = mob_ability and nil or res.weapon_skills[param]  -- only check WS if no mob ability
             local ability_name = (mob_ability and mob_ability.name) or (ws and ws.name) or "Unknown TP Move"
-			if ability_name == "Unknown TP Move" then
+			if ability_name == "Unknown TP Move" and message_id ~= 0 then
 				return
 			end
             if message_id == 0 then
