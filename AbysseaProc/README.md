@@ -3,7 +3,7 @@
 This addon lets you press **F12** to cycle through weapons for Abyssea procs.
 
 ## Editing the Addon
-To change the keybind or weapons, open **abysseaproc.lua** and edit the top section:
+To change the keybind or weapons, open **AbysseaProc.lua** and edit the top section:
 
 ```lua
 -- KEYBIND
