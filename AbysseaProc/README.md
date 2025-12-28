@@ -1,25 +1,30 @@
-# AbysseaProc
+# AbysseaProc (Element → Weapon → WS)
 
-This addon lets you press **F12** to cycle through weapons for Abyssea procs.
+This addon lets you select an Abyssea proc element, pick a matching weapon, and auto‑use the correct WS.
 
-## Editing the Addon
-To change the keybind or weapons, open **AbysseaProc.lua** and edit the top section:
+## Default Controls
+| Key | Action |
+|-----|--------|
+| **F10** | Cycle element |
+| **F11** | Cycle weapon associated with the element selected|
+| **F12** | Use appropriate weaponskill |
+
+## Change Keybinds
+Open **abysseaproc.lua** and change:
 
 ```lua
--- KEYBIND
-windower.send_command('bind f12 input //aproc cycle')
+local key_element = 'f10'
+local key_weapon  = 'f11'
+local key_ws      = 'f12'
+```
 
--- WEAPONS
+## Edit Weapons
+Open **abysseaproc.lua** and change:
+
+```lua
 local weapon_groups = {
-    ["Dagger"]       = { "Ceremonial Dagger" },
-    ["Sword"]        = { "Twinned Blade" },
-    ["Great Sword"]  = { "Irradiance Blade" },
-    ["Scythe"]       = { "Hoe" },
-    ["Polearm"]      = { "Iapetus" },
-    ["Katana"]       = { "Yagyu Short. +1" },
-    ["Great Katana"] = { "Ark Tachi" },
-    ["Club"]         = { "Chac-chacs" },
-    ["Staff"]        = { "Ram Staff" },
+    ["Dagger"] = { "Ceremonial Dagger" },
+    ["Sword"]  = { "Twinned Blade" },
 }
 ```
 
