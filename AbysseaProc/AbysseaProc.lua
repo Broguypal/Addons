@@ -16,7 +16,6 @@ local key_ws      = 'f12'  -- use weaponskill for current weapon/element
 
 -------------------------------------------------------------
 --  WEAPONS YOU OWN (EDIT THIS PART)
---  Format: ["Weapon Type"] = { "Weapon 1", "Weapon 2", ... }
 -------------------------------------------------------------
 local weapon_groups = {
     ["Dagger"]       = { "Ceremonial Dagger" },
@@ -75,7 +74,7 @@ local element_map = {
 }
 
 -------------------------------------------------------------
---  ELEMENT COLORS (RGB) – from your string
+--  ELEMENT COLORS (RGB) 
 -------------------------------------------------------------
 local element_colors = {
     Light   = {255, 255, 255}, -- LGT
@@ -94,7 +93,7 @@ local element_colors = {
 local current_element_index = 1
 local current_element       = element_order[current_element_index]
 
-local weapons_for_element   = {}  -- list of {weapon_type, weapon_name, ws}
+local weapons_for_element   = {} 
 local current_weapon_index  = 0
 
 -------------------------------------------------------------
@@ -105,8 +104,8 @@ info_box:pos(800, 400)  -- change position if you want
 info_box:size(12)
 info_box:bold(true)
 info_box:show()
-info_box:bg_alpha(180)   -- 0 = invisible, 255 = solid
-info_box:bg_color(30, 30, 30) -- dark grey box
+info_box:bg_alpha(180)  
+info_box:bg_color(30, 30, 30) 
 
 local function colorize_element(name)
     local c = element_colors[name] or {255, 255, 255}
@@ -125,7 +124,6 @@ local function update_display()
         wsname      = entry.ws or 'None'
     end
 
-    -- NEW: styled header + labels
     local text = string.format(
 [[\cs(200,200,200)[AbysseaProc]\cr
 \cs(160,160,160)Element:\cr   %s
