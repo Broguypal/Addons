@@ -83,7 +83,7 @@ local defaults = {
     timeout = 20
 }
 
--- Save settings helper
+-- Save settings helper 
 local function save_settings()
     if not settings or not output_box then return end
     local x, y = output_box:pos()
@@ -559,4 +559,5 @@ end)
 windower.register_event('unload', save_settings)
 
 -- Also save on logout
+
 windower.register_event('logout', save_settings)
