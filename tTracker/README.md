@@ -1,6 +1,6 @@
 # tTracker
 
-**tTracker** is a Windower addon for Final Fantasy XI that displays recent spell casts and TP moves used by your current target in a small, draggable text box. It helps track enemy actions in real time.
+**tTracker** is a Windower addon that displays recent spell casts and TP moves used by your current target in a small, draggable text box. It helps track enemy actions in real time.
 
 ---
 
