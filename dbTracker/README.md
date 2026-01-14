@@ -1,6 +1,6 @@
 # dbTracker
 
-**dbTracker** is a Windower addon for *Final Fantasy XI* that helps players keep track of active debuffs on their party members. It provides a clean overlay with role-colored jobs for easy visibility during combat.
+**dbTracker** is a Windower addon that helps players keep track of active debuffs on their party members. It provides a clean overlay with role-colored jobs for easy visibility during combat.
 
 ---
 
