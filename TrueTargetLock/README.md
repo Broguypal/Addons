@@ -33,7 +33,7 @@ If you turn off target lock, the addon becomes inactive.
 
 ## Auto-Load on Login (Optional)
 
-You can have the addon load automatically by editing your Windower scripts file and adding:
+You can have the addon load automatically by editing your Windower init.txt file under Windower>scripts and adding:
 
 		lua l TrueTargetLock
 
