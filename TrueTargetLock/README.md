@@ -1,6 +1,6 @@
 # TrueTargetLock 
 
-TrueTargetLock is a Windower addon for Final Fantasy XI that automatically keeps your character facing your current target while you are engaged in combat and target lock is enabled.
+TrueTargetLock is a Windower addon that automatically keeps your character facing your current target while you are engaged in combat and target lock is enabled.
 
 It also helps track the monster if it moves, keeping you properly oriented so your attacks continue to connect.
 
