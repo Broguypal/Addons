@@ -8,12 +8,6 @@ local MIN_DELTA     = 0.05     -- radians (~2.9°); must be off by this much to 
 
 local last_turn_t = 0
 
--- This function checks if the addon "react" is loaded as this already handles facing and can cause conflicts.
-local function react_is_loaded()
-    return _G.facemob ~= nil
-end
-
-
 local function norm_pi(a)
     while a > math.pi do a = a - 2*math.pi end
     while a < -math.pi do a = a + 2*math.pi end
@@ -34,8 +28,6 @@ end
 
 windower.register_event('prerender', function()
     local t = os.clock()
-	
-    if react_is_loaded() then return end
 	
     if (t - last_turn_t) < TURN_INTERVAL then return end
 
