@@ -50,7 +50,7 @@ windower.register_event('addon command', function(cmd)
         config.save(settings)
         windower.add_to_chat(207, '[TrueTargetLock] Mode: NORMAL (Default).')
     else
-        windower.add_to_chat(207, '[TrueTargetLock] Commands: //truetargetlock always  |  //truetargetlock locked')
+        windower.add_to_chat(207, '[TrueTargetLock] Commands: //truetargetlock always  |  //truetargetlock normal')
         windower.add_to_chat(207, '[TrueTargetLock] Current mode: '..MODE)
     end
 end)
@@ -86,3 +86,4 @@ windower.register_event('prerender', function()
     windower.ffxi.turn(desired)
     last_turn_t = t
 end)
+
