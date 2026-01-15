@@ -83,5 +83,4 @@ Note:
 - **Name:** Broguypal
 - **Version:** 2.0
 
-Copyright (c) 2026 Broguypal
-MIT License
+Copyright (c) 2026 Broguypal / MIT License
