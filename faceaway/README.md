@@ -1,6 +1,6 @@
 # FaceAway
 
-**FaceAway** is a Windower addon that turns your character 180 degrees when you press a key.
+**FaceAway** is a Windower addon for Final Fantasy XI that turns your character 180 degrees when you press a key.
 
 ---
 
@@ -19,3 +19,5 @@
 ---
 
 Made by **Broguypal**
+
+Copyright (c) 2026 Broguypal / MIT License
