@@ -37,3 +37,5 @@ After saving changes:
 ```
 
 Done.
+
+Copyright (c) 2026 Broguypal / MIT License
