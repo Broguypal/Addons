@@ -2,4 +2,4 @@ Please do not message me in game about these Addon's. I will not respond as I do
 
 If you'd like to reach out, my discord is "Broguypal"
 
-Copyright (c) 2026 Broguypal / MIT License (all addons)
+Copyright (c) 2026 Broguypal - BSD 3-Clause Licence (all addons)
