@@ -62,5 +62,3 @@
 
 Created by **Broguypal**  
 Version **1.1**  
-
-Copyright (c) 2026 Broguypal / MIT License
