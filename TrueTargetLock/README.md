@@ -79,5 +79,3 @@ You can have the addon load automatically by editing your Windower scripts file 
        lua l TrueTargetLock
 
 This will load the addon every time you start the game.
-
-Copyright (c) 2026 Broguypal / MIT License
