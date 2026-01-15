@@ -19,5 +19,3 @@
 ---
 
 Made by **Broguypal**
-
-Copyright (c) 2026 Broguypal / MIT License
