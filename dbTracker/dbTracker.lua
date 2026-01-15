@@ -1,3 +1,6 @@
+-- License: BSD 3-Clause (see bottom of file)
+-- Copyright (c) 2026 Broguypal
+
 _addon.name     = 'dbTracker'
 _addon.author   = 'Broguypal'
 _addon.version  = '1.4'
