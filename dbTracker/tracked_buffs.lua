@@ -70,6 +70,9 @@ M.TRACK = {
     [193] = "Lullaby",
     [194] = "Elegy",
     [223] = "Nocturne",
+	
+	-- Misc debuffs
+	[473] = "Muddle",
 
     -- Additional “Down” IDs
     [557] = "Attack Down",
@@ -83,23 +86,44 @@ M.TRACK = {
     [565] = "Slow",
     [566] = "Paralysis",
     [567] = "Weight",
+	
+	-- Special debuffs
+	[630] = "Taint",
+	[631] = "Haunt",
+	[632] = "Black Sanctus",
+	[633] = "Animated",
+	
 }
 
 
--- Labels to highlight in warm color (optional)
-M.SEVERE = {
-    ["Doom"]=true,
+-- Tracked debuffs that require a -na spell to debuff
+M.NA = {
+	["Blindness"]=true,
+	["Doom"]=true,
 	["Curse"]=true, 
-	["Bane"]=true, 
+	["Paralysis"]=true,
+	["Poison"]=true,
+	["Silence"]=true,
+	["Petrification"]=true,
 	["Plague"]=true,
+	["Disease"]=true,
+}
+
+--Tracked debuffs that are undispellable
+M.SEVERE = {
+	["Bane"]=true, 
     ["Amnesia"]=true, 
-	["Petrification"]=true, 
 	["Gradual Petrification"]=true,
     ["Terror"]=true, 
 	["Charm"]=true, 
 	["Mute"]=true, 
-	["Silence"]=true,
+	["Taint"]=true,
+	["Haunt"]=true,
+	["Black Sanctus"]=true,
+	["Animated"]=true,
+	["Encumbrance"]=true,
+	["Weakness"]=true,
+	["Stun"]=true,
 }
 
 return M
-

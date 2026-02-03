@@ -1,6 +1,6 @@
 # dbTracker
 
-**dbTracker** is a Windower addon for *Final Fantasy XI* that helps players keep track of active debuffs on their party members. It provides a clean overlay with role-colored jobs for easy visibility during combat.
+**dbTracker** is a Windower addon for *FFXI* that helps players keep track of active debuffs on their party members. It provides a clean overlay with role-colored jobs for easy visibility during combat.
 
 ---
 
@@ -18,8 +18,10 @@
   - **Magic DPS** – Dark Purple  
   - **Support** – Yellow  
 
-- **Severe Debuffs Highlighting**  
-  Debuffs flagged as **SEVERE** in `tracked_buffs.lua` are displayed in **orange**, making them stand out as urgent.  
+- ** Debuffs Highlighting**  
+  Debuffs flagged as **SEVERE** in `tracked_buffs.lua` are displayed in **red**, making them stand out as undispellable.
+  Debuffs flagged as **NA** in `tracked_buffs.lua` are displayed in **yellow**, making them stand out as being dispellable with a whitemage -NA spell.
+  
 
 ---
 
@@ -42,14 +44,6 @@
 
 ---
 
-## 🔶 Severe Debuffs
-
-- Certain debuffs are marked as **SEVERE** (configured in `tracked_buffs.lua`).  
-- When a party member has one of these active, their debuff list will be highlighted in **orange**.  
-- This makes it easy to spot critical statuses that require urgent attention (e.g., **Doom**, **Charm**, or other high-priority effects).  
-
----
-
 ## 📝 Notes
 
 - This addon parses incoming packets to maintain accurate debuff states.  
@@ -61,4 +55,7 @@
 ## 👤 Author
 
 Created by **Broguypal**  
-Version **1.1**  
+Version **1.5** 
+
+Copyright (c) 2026 Broguypal
+License: BSD 3-Clause 

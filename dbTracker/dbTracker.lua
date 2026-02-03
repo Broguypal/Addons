@@ -3,7 +3,7 @@
 
 _addon.name     = 'dbTracker'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.4'
+_addon.version  = '1.5'
 
 local texts   = require('texts')
 local config  = require('config')
@@ -24,6 +24,7 @@ local MEMBER_JOB    = {}       -- name -> 'WAR', 'WHM', ... (short code)
 local ok_trk, tracked_mod = pcall(require, 'tracked_buffs')
 local TRACK  = (ok_trk and type(tracked_mod.TRACK)  == 'table') and tracked_mod.TRACK  or {}
 local SEVERE = (ok_trk and type(tracked_mod.SEVERE) == 'table') and tracked_mod.SEVERE or {}
+local NA = (ok_trk and type(tracked_mod.NA) == 'table') and tracked_mod.NA or {}
 
 ------------------------------------------------------------
 -- Member tracking helpers
@@ -140,6 +141,8 @@ local COL_NAME_PX = 140
 local STROKE = { w=1.7, a=180, r=0,g=0,b=0 }
 local GREY   = {r=200, g=200, b=200}
 local RED    = {r=230, g=90,  b=90}
+local YELLOW = {r=255, g=230, b=90}
+
 
 local ui = { header=nil, rows={} }
 local drag_state = { x = settings.pos.x, y = settings.pos.y }
@@ -185,6 +188,61 @@ local function colorize_labels(labels, severe_rgb)
   end
   return table.concat(out, ' ')
 end
+
+local function wrap_color(lbl, rgb)
+  return ('\\cs(%d,%d,%d)%s\\cr'):format(rgb.r, rgb.g, rgb.b, lbl)
+end
+
+local function split_labels_by_priority(labels)
+  local severe, na, normal = {}, {}, {}
+
+  for _, lbl in ipairs(labels) do
+    if SEVERE[lbl] then
+      severe[#severe+1] = lbl
+    elseif NA[lbl] then
+      na[#na+1] = lbl
+    else
+      normal[#normal+1] = lbl
+    end
+  end
+
+  table.sort(severe)
+  table.sort(na)
+  table.sort(normal)
+
+  return severe, na, normal
+end
+
+
+-- Formats the debuff line so NA debuffs are displayed separately in yellow
+local function format_debuff_line(labels)
+  local severe, na, normal = split_labels_by_priority(labels)
+
+  local parts = {}
+
+  -- SEVERE first (red)
+  if #severe > 0 then
+    parts[#parts+1] = colorize_labels(severe)
+  end
+
+-- NA second (yellow, no prefix)
+  if #na > 0 then
+    local na_colored = {}
+    for _, lbl in ipairs(na) do
+      na_colored[#na_colored+1] = wrap_color(lbl, YELLOW)
+    end
+    parts[#parts+1] = table.concat(na_colored, ' ')
+  end
+
+
+  -- Normal last
+  if #normal > 0 then
+    parts[#parts+1] = table.concat(normal, ' ')
+  end
+
+  return table.concat(parts, '  |  ')
+end
+
 
 -- Whitelist: only render labels for buff IDs present in TRACK
 local function labels_for_name(name)
@@ -327,7 +385,7 @@ function update_ui()
 		local label = ("%d. %s"):format(i, r.name)
 		ui.rows[i].name:text(label)
 		set_text_rgb(ui.rows[i].name, name_color(r.name))
-		ui.rows[i].buffs:text(colorize_labels(r.labels))
+		ui.rows[i].buffs:text(format_debuff_line(r.labels))
 	end
 end
 
