@@ -18,9 +18,9 @@
   - **Magic DPS** – Dark Purple  
   - **Support** – Yellow  
 
-- ** Debuffs Highlighting**  
-  Debuffs flagged as **SEVERE** in `tracked_buffs.lua` are displayed in **red**, making them stand out as undispellable.
+- **Debuffs Highlighting**
 
+  Debuffs flagged as **SEVERE** in `tracked_buffs.lua` are displayed in **red**, making them stand out as undispellable.
   
   Debuffs flagged as **NA** in `tracked_buffs.lua` are displayed in **yellow**, making them stand out as being dispellable with a whitemage -NA spell.
   
