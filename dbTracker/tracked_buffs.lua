@@ -124,6 +124,7 @@ M.SEVERE = {
 	["Encumbrance"]=true,
 	["Weakness"]=true,
 	["Stun"]=true,
+	["Kaustra"]=true,
 }
 
 return M
