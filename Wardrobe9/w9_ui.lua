@@ -380,6 +380,20 @@ return function(res, util, scanmod, planner, execmod)
         return mx >= x and mx <= (x + w) and my >= y and my <= (y + h)
     end
 
+    local SB_HIT_PAD_X = 18  -- vertical forgiveness for grabbing the scrollbar/thumb
+    local SB_HIT_PAD_Y = 18  -- vertical forgiveness for grabbing the scrollbar/thumb
+
+    function Rect.point_in_xpad(mx, my, x, y, w, h, pad_x)
+        pad_x = pad_x or 0
+        return Rect.point_in(mx, my, x - pad_x, y, w + pad_x*2, h)
+    end
+
+    function Rect.point_in_pad(mx, my, x, y, w, h, pad_x, pad_y)
+        pad_x = pad_x or 0
+        pad_y = pad_y or 0
+        return Rect.point_in(mx, my, x - pad_x, y - pad_y, w + pad_x*2, h + pad_y*2)
+    end
+
 
     -- ======================================================
     -- Render helpers
@@ -866,10 +880,32 @@ return function(res, util, scanmod, planner, execmod)
 
     local function begin_file_sb_drag(mx, my)
         local sx, sy, sw, sh = Rect.file_thumb()
-        if Rect.point_in(mx,my,sx,sy,sw,sh) then
+        if Rect.point_in_pad(mx, my, sx, sy, sw, sh, SB_HIT_PAD_X, SB_HIT_PAD_Y) then
             state.file_sb_dragging = true
             state.file_sb_drag_offset = my - sy
-            return true end
+            return true
+        end
+
+        local tx, ty, tw, th = Rect.file_scrollbar()
+        if Rect.point_in_pad(mx, my, tx, ty, tw, th, SB_HIT_PAD_X, SB_HIT_PAD_Y) then
+            local _, _, _, thumb_h = Rect.file_thumb()
+            local maxy = th - thumb_h
+            if maxy > 0 then
+
+                local rel = util.clamp((my - ty) - (thumb_h / 2), 0, maxy)
+                local ms = max_file_scroll()
+                if ms > 0 then
+                    state.file_scroll = math.floor((rel / maxy) * ms + 0.5)
+                    ensure_file_scroll_valid()
+                end
+				
+                state.file_sb_dragging = true
+                state.file_sb_drag_offset = thumb_h / 2
+                layout()
+                return true
+            end
+        end
+
         return false
     end
 
@@ -900,10 +936,30 @@ return function(res, util, scanmod, planner, execmod)
 
     local function begin_log_sb_drag(mx, my)
         local sx, sy, sw, sh = Rect.log_thumb()
-        if Rect.point_in(mx,my,sx,sy,sw,sh) then
+        if Rect.point_in_pad(mx, my, sx, sy, sw, sh, SB_HIT_PAD_X, SB_HIT_PAD_Y) then
             state.log_sb_dragging = true
             state.log_sb_drag_offset = my - sy
-            return true end
+            return true
+        end
+
+        local tx, ty, tw, th = Rect.log_scrollbar()
+        if Rect.point_in_pad(mx, my, tx, ty, tw, th, SB_HIT_PAD_X, SB_HIT_PAD_Y) then
+            local _, _, _, thumb_h = Rect.log_thumb()
+            local maxy = th - thumb_h
+            if maxy > 0 then
+                local rel = util.clamp((my - ty) - (thumb_h / 2), 0, maxy)
+                local ms = max_log_scroll()
+                if ms > 0 then
+                    state.log_scroll = math.floor((rel / maxy) * ms + 0.5)
+                    ensure_log_scroll_valid()
+                end
+                state.log_sb_dragging = true
+                state.log_sb_drag_offset = thumb_h / 2
+                layout()
+                return true
+            end
+        end
+
         return false
     end
 
