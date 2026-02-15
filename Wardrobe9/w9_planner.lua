@@ -30,10 +30,36 @@ return function(res, util, config, slots, bags, scanmod)
         local in_excl_name, in_excl_exact = {}, {}
         local excl_bag_for_name, excl_bag_for_exact = {}, {}
 
-        local dest_ids = {}
+        local managed_dest_ids = {}
         do
             local dest = bags.build_dest_bags()
-            for _,b in ipairs(dest) do dest_ids[b.id] = true end
+            for _,b in ipairs(dest) do managed_dest_ids[b.id] = true end
+        end
+
+        -- Presence in wardrobes should count even if a wardrobe is not managed (config false),
+        -- as long as the wardrobe is enabled in-game (monthly activation).
+        -- Config false should only prevent moving into/out of that wardrobe.
+        local ALL_WARDROBE_NAMES = {
+            'Wardrobe','Wardrobe 2','Wardrobe 3','Wardrobe 4',
+            'Wardrobe 5','Wardrobe 6','Wardrobe 7','Wardrobe 8',
+        }
+
+        local enabled_wardrobe_ids = {}
+        local disabled_wardrobe_ids = {}
+        local unmanaged_enabled_wardrobe_ids = {}
+
+        for _,bn in ipairs(ALL_WARDROBE_NAMES) do
+            local id = bags.bag_id_by_name(bn)
+            if id then
+                if bags.bag_enabled(id) then
+                    enabled_wardrobe_ids[id] = true
+                    if not managed_dest_ids[id] then
+                        unmanaged_enabled_wardrobe_ids[id] = true
+                    end
+                else
+                    disabled_wardrobe_ids[id] = bn
+                end
+            end
         end
 
         local excluded_ids = {}
@@ -62,7 +88,7 @@ return function(res, util, config, slots, bags, scanmod)
                 by_exact[exact] = by_exact[exact] or {}
                 by_exact[exact][#by_exact[exact]+1] = rec
 
-                if dest_ids[rec.bag_id] then
+                if enabled_wardrobe_ids[rec.bag_id] then
                     in_dest_name[nm] = (in_dest_name[nm] or 0) + 1
                     in_dest_exact[exact] = (in_dest_exact[exact] or 0) + 1
 
@@ -88,6 +114,7 @@ return function(res, util, config, slots, bags, scanmod)
             by_name = by_name,
             by_exact = by_exact,
 
+            -- NOTE: "dest" here means "available in any ENABLED wardrobe (1..8)", even if not managed.
             in_dest_name = in_dest_name,
             in_dest_exact = in_dest_exact,
 
@@ -97,6 +124,10 @@ return function(res, util, config, slots, bags, scanmod)
             in_excl_exact = in_excl_exact,
             excl_bag_for_name = excl_bag_for_name,
             excl_bag_for_exact = excl_bag_for_exact,
+
+            unmanaged_enabled_wardrobe_ids = unmanaged_enabled_wardrobe_ids,
+            disabled_wardrobe_ids = disabled_wardrobe_ids,
+            managed_dest_ids = managed_dest_ids,
         }
     end
 
@@ -249,7 +280,30 @@ return function(res, util, config, slots, bags, scanmod)
 							exact = excl_exact,  -- true only if exact aug was found
 						}
                     else
-                        missing[#missing+1] = { key=key, name=info.name, aug=info.aug, group=info.group }
+                        do
+                        local found_disabled = false
+                        local list = idx.by_exact[key] or idx.by_name[info.name]
+                        if type(list) == 'table' then
+                            for _,rec in ipairs(list) do
+                                local bn = idx.disabled_wardrobe_ids and idx.disabled_wardrobe_ids[rec.bag_id]
+                                if bn then
+                                    found_disabled = true
+                                    in_excluded[#in_excluded+1] = {
+                                        name = info.name,
+                                        aug = info.aug,
+                                        group = info.group,
+                                        bag = bn .. ' (disabled)',
+                                        exact = true,
+                                    }
+                                    excl_present = excl_present + 1
+                                    break
+                                end
+                            end
+                        end
+                        if not found_disabled then
+                            missing[#missing+1] = { key=key, name=info.name, aug=info.aug, group=info.group }
+                        end
+                    end
                     end
                 end
             else
@@ -273,7 +327,30 @@ return function(res, util, config, slots, bags, scanmod)
 						}
 					else
 
-                        missing[#missing+1] = { key=key, name=info.name, aug='', group=info.group }
+                        do
+                        local found_disabled = false
+                        local list = idx.by_name[info.name]
+                        if type(list) == 'table' then
+                            for _,rec in ipairs(list) do
+                                local bn = idx.disabled_wardrobe_ids and idx.disabled_wardrobe_ids[rec.bag_id]
+                                if bn then
+                                    found_disabled = true
+                                    in_excluded[#in_excluded+1] = {
+                                        name = info.name,
+                                        aug = '',
+                                        group = info.group,
+                                        bag = bn .. ' (disabled)',
+                                        exact = true,
+                                    }
+                                    excl_present = excl_present + 1
+                                    break
+                                end
+                            end
+                        end
+                        if not found_disabled then
+                            missing[#missing+1] = { key=key, name=info.name, aug='', group=info.group }
+                        end
+                    end
                     end
                 end
             end
@@ -311,7 +388,7 @@ return function(res, util, config, slots, bags, scanmod)
 
         if #disabled_wardrobes > 0 then
             for _,b in ipairs(disabled_wardrobes) do
-                plan.notes[#plan.notes+1] = ('%s is disabled; it will appear in scan, but we will not move into/out of it.'):format(b.name)
+                plan.notes[#plan.notes+1] = ('%s is disabled; it will appear in scan, but we will not move into/out of it.'):format((type(b)=='table' and (b.name or b.en or b.id)) or tostring(b))
             end
         end
 
@@ -406,7 +483,7 @@ return function(res, util, config, slots, bags, scanmod)
 
                 if list_exact and #list_exact > 0 then
                     for _,rec in ipairs(list_exact) do
-                        if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) then
+                        if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) then
                             return rec, 'exact'
                         end
                     end
@@ -421,7 +498,7 @@ return function(res, util, config, slots, bags, scanmod)
 
             local enabled = {}
             for _,rec in ipairs(list_name) do
-                if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) then
+                if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) then
                     enabled[#enabled+1] = rec
                 end
             end
@@ -571,7 +648,7 @@ return function(res, util, config, slots, bags, scanmod)
                     local list = idx.by_name[name] or {}
                     local enabled_total = 0
                     for _,rec in ipairs(list) do
-                        if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) then
+                        if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) then
                             enabled_total = enabled_total + 1
                         end
                     end

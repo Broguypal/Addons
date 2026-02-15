@@ -20,7 +20,7 @@ return function(res, util, config)
 
     function M.bag_id_by_name(target_name)
         target_name = util.normalize_bag_name(target_name):lower()
-        for id,bag in pairs(res.bags) do
+        for id, bag in pairs(res.bags) do
             if bag and bag.en and util.normalize_bag_name(bag.en):lower() == target_name then
                 return id
             end
@@ -55,7 +55,8 @@ return function(res, util, config)
     end
 
     function M.pick_return_bag_id()
-        for _,bn in ipairs(config.RETURN_BAG_PREFER) do
+        local order = config.RETURN_BAG_ORDER or config.RETURN_BAG_PREFER or {}
+        for _, bn in ipairs(order) do
             local id = M.bag_id_by_name(bn)
             if id and M.bag_enabled(id) then
                 return id, (res.bags[id] and res.bags[id].en) or bn
@@ -68,13 +69,35 @@ return function(res, util, config)
         local dest = {}
         local disabled = {}
 
-        for _,bn in ipairs(config.DEST_BAG_NAMES) do
-            local id = M.bag_id_by_name(bn)
-            if id then
-                if M.bag_enabled(id) then
-                    dest[#dest+1] = { id=id, name=(res.bags[id] and res.bags[id].en) or bn }
-                else
-                    disabled[#disabled+1] = { id=id, name=bn }
+        -- Prefer the normalized boolean-map config if present.
+        -- Preserve a consistent, user-friendly order for Wardrobe 1..8.
+        if type(config.DEST_BAGS) == 'table' then
+            local ordered = {
+                'Wardrobe','Wardrobe 2','Wardrobe 3','Wardrobe 4',
+                'Wardrobe 5','Wardrobe 6','Wardrobe 7','Wardrobe 8',
+            }
+            for _, bn in ipairs(ordered) do
+                if config.DEST_BAGS[bn] then
+                    local id = M.bag_id_by_name(bn)
+                    if id then
+                        if M.bag_enabled(id) then
+                            dest[#dest+1] = { id=id, name=(res.bags[id] and res.bags[id].en) or bn }
+                        else
+                            disabled[#disabled+1] = bn
+                        end
+                    end
+                end
+            end
+        else
+            -- Backward-compatible legacy list.
+            for _, bn in ipairs(config.DEST_BAG_NAMES or {}) do
+                local id = M.bag_id_by_name(bn)
+                if id then
+                    if M.bag_enabled(id) then
+                        dest[#dest+1] = { id=id, name=(res.bags[id] and res.bags[id].en) or bn }
+                    else
+                        disabled[#disabled+1] = bn
+                    end
                 end
             end
         end

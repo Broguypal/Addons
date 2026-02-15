@@ -16,22 +16,56 @@ THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
 return {
-    -- If true, also print [W9] messages to the chatlog.
-    -- Default false: notifications only show in the Wardrobe9 UI box.
+
+    ---------------------------------------------------------------------------
+    -- CHAT LOG
+		-- If true, also print [W9] messages to the chatlog.
+		-- Default false: notifications only show in the Wardrobe9 UI box.
+    ---------------------------------------------------------------------------
+	
     LOG_TO_CHAT = false,
 
-	--Set Destination bags. Note: If certain wardrobes are not active, they will be ignored by default and do not need to be removed.
-    DEST_BAG_NAMES = {
-        'Wardrobe','Wardrobe 2','Wardrobe 3','Wardrobe 4',
-        'Wardrobe 5','Wardrobe 6','Wardrobe 7','Wardrobe 8',
-    },
-	
-	-- Preference in order that returned items will be sent to.
-    RETURN_BAG_PREFER = {
-        'Safe','Safe 2','Storage','Locker','Satchel','Sack','Case',
+    ---------------------------------------------------------------------------
+    -- DESTINATION WARDROBES (true = eligible destination)
+    --
+    -- Note: If a wardrobe is not currently active/available, Wardrobe9 ignores
+    -- it automatically (you don't need to change this list).
+    ---------------------------------------------------------------------------
+
+    DEST_BAGS = {
+        ["Wardrobe"]   = true,
+        ["Wardrobe 2"] = true,
+        ["Wardrobe 3"] = true,
+        ["Wardrobe 4"] = true,
+        ["Wardrobe 5"] = true,
+        ["Wardrobe 6"] = true,
+        ["Wardrobe 7"] = true,
+        ["Wardrobe 8"] = true,
     },
 
-	-- Do not touch. Please use for reference.
+    ---------------------------------------------------------------------------
+    -- RETURN BAG PRIORITY (top-to-bottom = priority)
+    --
+    -- When Wardrobe9 swaps an unused wardrobe item out, it tries these bags in
+    -- order and returns it to the first enabled bag it finds.
+    ---------------------------------------------------------------------------
+
+    RETURN_BAG_ORDER = {
+        "Safe",
+        "Safe 2",
+        "Storage",
+        "Locker",
+        "Satchel",
+        "Sack",
+        "Case",
+    },
+
+    ---------------------------------------------------------------------------
+    -- SLOT GROUPS (reference only)
+    -- Used by Wardrobe9 to treat "left/right ring" as the same slot group, etc.
+    -- DO NOT edit unless you know exactly what you're doing.
+    ---------------------------------------------------------------------------
+
     SLOT_GROUP = {
         head='head', body='body', hands='hands', legs='legs', feet='feet',
         neck='neck', waist='waist', back='back',
@@ -41,10 +75,29 @@ return {
         main='weapon', sub='weapon', range='weapon', ranged='weapon',
     },
 
-	-- These groups will not be moved. See SLOT_GROUP for naming conventions (ex. ring=true)
-    PROTECTED_SLOT_GROUPS = { weapon=true },
+    ---------------------------------------------------------------------------
+    -- PROTECTED SLOT GROUPS (true = never moved)
+    ---------------------------------------------------------------------------
+	
+    PROTECTED_SLOT_GROUPS = {
+        weapon = true,
+        ring   = false,
+        ear    = false,
+        head   = false,
+        body   = false,
+        hands  = false,
+        legs   = false,
+        feet   = false,
+        neck   = false,
+        waist  = false,
+        back   = false,
+        ammo   = false,
+    },
 
-	-- These specific items will not be moved.
+    ---------------------------------------------------------------------------
+    -- LOCKED ITEMS (true = never moved)
+    ---------------------------------------------------------------------------
+
     LOCKED_ITEMS = {
         ["Warp Ring"] = true,
         ["Dim. Ring (Holla)"] = true,
@@ -53,34 +106,26 @@ return {
         ["Trizek Ring"] = true,
         ["Echad Ring"] = true,
         ["Facility Ring"] = true,
-		["Capacity Ring"] = true,
-		["Reraise Gorget"] = true,
-		["Airmid's Gorget"] = true,
-		["Nexus Cape"] = true,
-		["Shobuhouou Kabuto"] = true,
+        ["Capacity Ring"] = true,
+        ["Reraise Gorget"] = true,
+        ["Airmid's Gorget"] = true,
+        ["Nexus Cape"] = true,
+        ["Shobuhouou Kabuto"] = true,
     },
 
-    -- Bags that Wardrobe9 will NEVER move FROM into wardrobes.
-    -- Keys are normalized bag names (lowercase).
+    ---------------------------------------------------------------------------
+    -- SOURCE BAG EXCLUSIONS
+    -- true  = Wardrobe9 will NEVER move items FROM this bag into wardrobes
+    ---------------------------------------------------------------------------
+
     SOURCE_BAG_EXCLUDE = {
         ["inventory"] = true,
+        ["safe"]    = false,
+        ["safe 2"]  = false,
+        ["storage"] = false,
+        ["locker"]  = false,
+        ["satchel"] = false,
+        ["sack"]    = false,
+        ["case"]    = false,
     },
 }
---[[ Available SOURCE_BAG_EXCLUDE bag names:
-			"inventory"
-			"safe"
-			"safe 2"
-			"storage"
-			"locker"
-			"satchel"
-			"sack"
-			"case"
-			"wardrobe"
-			"wardrobe 2"
-			"wardrobe 3"
-			"wardrobe 4"
-			"wardrobe 5"
-			"wardrobe 6"
-			"wardrobe 7"
-			"wardrobe 8"	
-]]
