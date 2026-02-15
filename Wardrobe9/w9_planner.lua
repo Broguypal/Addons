@@ -36,9 +36,6 @@ return function(res, util, config, slots, bags, scanmod)
             for _,b in ipairs(dest) do managed_dest_ids[b.id] = true end
         end
 
-        -- Presence in wardrobes should count even if a wardrobe is not managed (config false),
-        -- as long as the wardrobe is enabled in-game (monthly activation).
-        -- Config false should only prevent moving into/out of that wardrobe.
         local ALL_WARDROBE_NAMES = {
             'Wardrobe','Wardrobe 2','Wardrobe 3','Wardrobe 4',
             'Wardrobe 5','Wardrobe 6','Wardrobe 7','Wardrobe 8',
