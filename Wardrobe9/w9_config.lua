@@ -20,15 +20,18 @@ return {
     -- Default false: notifications only show in the Wardrobe9 UI box.
     LOG_TO_CHAT = false,
 
+	--Set Destination bags. Note: If certain wardrobes are not active, they will be ignored by default and do not need to be removed.
     DEST_BAG_NAMES = {
         'Wardrobe','Wardrobe 2','Wardrobe 3','Wardrobe 4',
         'Wardrobe 5','Wardrobe 6','Wardrobe 7','Wardrobe 8',
     },
-
+	
+	-- Preference in order that returned items will be sent to.
     RETURN_BAG_PREFER = {
         'Safe','Safe 2','Storage','Locker','Satchel','Sack','Case',
     },
 
+	-- Do not touch. Please use for reference.
     SLOT_GROUP = {
         head='head', body='body', hands='hands', legs='legs', feet='feet',
         neck='neck', waist='waist', back='back',
@@ -38,7 +41,7 @@ return {
         main='weapon', sub='weapon', range='weapon', ranged='weapon',
     },
 
-	-- These groups will not be moved.
+	-- These groups will not be moved. See SLOT_GROUP for naming conventions (ex. ring=true)
     PROTECTED_SLOT_GROUPS = { weapon=true },
 
 	-- These specific items will not be moved.
@@ -79,6 +82,5 @@ return {
 			"wardrobe 5"
 			"wardrobe 6"
 			"wardrobe 7"
-			"wardrobe 8"
-			
+			"wardrobe 8"	
 ]]

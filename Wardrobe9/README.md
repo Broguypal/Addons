@@ -100,21 +100,18 @@ you to adjust how the addon behaves.
 
 Common configurable options include:
 
--   Which wardrobes are eligible for automatic swapping.
--   Whether inventory or specific bags are included in scans.
--   Swap behavior rules.
--   UI behavior and display settings.
--   Whether certain equipment categories are ignored.
+-   Locking specific items from movement.
+-   Preventing certain equipment categories (weapons/Head/etc.) from being moved.
+-	Setting source bags to be ignored.
 
-### Weapons
 
-By default, **weapons are not included** in automatic wardrobe
+### Defaults
+
+By default, **weapons are not moved** and **player inventory is not moved from** in automatic wardrobe
 management.
 
-This is intentional to prevent accidental movement of frequently swapped
-or situational weapons.
-However, this behavior can be changed in the configuration file if you
-prefer weapons to be included in the scan and swap process.
+This is intentional to prevent accidental movement of situational weapons and to leave your inventory untouched.
+However, this behavior can be changed in the w9_config.lua file.
 
 ------------------------------------------------------------------------
 
