@@ -59,9 +59,9 @@ You immediately see what your Lua expects you to have equipped.
 
 -   Checks your wardrobes and inventory for each referenced item.
 -   Clearly indicates:
-    -   Items already in wardrobes\
-    -   Items found but not currently stored in wardrobes\
-    -   Items not found at all
+    -   Items already in wardrobes.
+    -   Items found but not currently stored in wardrobes.
+    -   Items not found at all.
 
 This provides a fast validation of your job file against your actual
 gear.
@@ -100,11 +100,11 @@ you to adjust how the addon behaves.
 
 Common configurable options include:
 
--   Which wardrobes are eligible for automatic swapping\
--   Whether inventory or specific bags are included in scans\
--   Swap behavior rules\
--   UI behavior and display settings\
--   Whether certain equipment categories are ignored
+-   Which wardrobes are eligible for automatic swapping.
+-   Whether inventory or specific bags are included in scans.
+-   Swap behavior rules.
+-   UI behavior and display settings.
+-   Whether certain equipment categories are ignored.
 
 ### Weapons
 
@@ -112,7 +112,7 @@ By default, **weapons are not included** in automatic wardrobe
 management.
 
 This is intentional to prevent accidental movement of frequently swapped
-or situational weapons.\
+or situational weapons.
 However, this behavior can be changed in the configuration file if you
 prefer weapons to be included in the scan and swap process.
 
@@ -169,5 +169,5 @@ workflow.
 
 ## License
 
-BSD 3-Clause License\
+BSD 3-Clause License
 Copyright (c) 2026 Broguypal
