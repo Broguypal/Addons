@@ -13,18 +13,11 @@ Its purpose is simple:
 
 ## Important Usage Requirement
 
-Wardrobe9 is designed to be used **through its User Interface inside
-your Mog House**.
+Wardrobe9 is designed to be used **through its User Interface inside your Mog House**.
 
--   The **full interface is only available while you are inside your Mog
-    House.**
--   This is where scanning, planning, and execution are intended to
-    occur.
--   Using the addon outside of your Mog House will not provide the
-    complete interface experience.
+-   The **full interface is only available while you are inside your Mog House.**
+-   This is where scanning, planning, and execution occur.
 
-This ensures safe wardrobe access and proper operation of the planning
-system.
 
 ------------------------------------------------------------------------
 
@@ -72,9 +65,8 @@ gear.
 
 If an item is found but not stored in a wardrobe:
 
--   Wardrobe9 will move it into a wardrobe automatically.
--   If the wardrobe is full, it will swap out an unused item of the same
-    gear type.
+-   Wardrobe9 will move it into a wardrobe automatically and swap out an unused item of the same geartype.
+-   If there are no unused items in the wardrobe, it will move the item to a wardrobe with available space without swapping.
 -   Movements are planned first, then executed in a controlled way.
 
 No more manual inventory juggling.
@@ -107,24 +99,11 @@ Common configurable options include:
 
 ### Defaults
 
-By default, **weapons are not moved** and **player inventory is not moved from** in automatic wardrobe
+By default, **weapons and items in a players inventory are not moved** in automatic wardrobe
 management.
 
 This is intentional to prevent accidental movement of situational weapons and to leave your inventory untouched.
 However, this behavior can be changed in the w9_config.lua file.
-
-------------------------------------------------------------------------
-
-## Typical Use Cases
-
--   Setting up a new job file.
--   Returning to an old job after months away.
--   Cleaning up wardrobes after gear changes.
--   Verifying that your Lua is fully supported by your current
-    inventory.
-
-Wardrobe9 ensures your wardrobes reflect what your job file actually
-uses.
 
 ------------------------------------------------------------------------
 
