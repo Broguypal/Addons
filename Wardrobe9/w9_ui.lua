@@ -20,14 +20,6 @@ return function(res, util, scanmod, planner, execmod, mousemod)
 
     local texts = require('texts')
 
-    -- ==========================================================================
-    -- PIXEL LAYOUT CONSTANTS
-    --
-    -- Every dimension is in pixels.  char_w() is measured at runtime and used
-    -- ONLY to decide how many characters fit inside a known pixel width — it
-    -- never drives panel geometry.
-    -- ==========================================================================
-
     local PX = {
         -- Panel outer width (fixed)
         PANEL_W     = 480,
@@ -347,7 +339,7 @@ return function(res, util, scanmod, planner, execmod, mousemod)
     end
 
     -- ==========================================================================
-    -- Hit-test rectangles — all in absolute screen pixels
+    -- Hit-test rectangles 
     -- ==========================================================================
 
     local Rect = {}
@@ -380,7 +372,7 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         return lx, ly, content_w(), PX.LOG_ROWS * row_h()
     end
 
-    -- ---- File scrollbar (flush right) ----
+    -- ---- File scrollbar  ----
 
     local function file_sb_x() return UI.x + PX.PANEL_W - PX.SB_W end
     local function file_sb_y() return UI.y + PX.FILE_Y end
@@ -413,7 +405,7 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         return tx, ty + yoff, tw, thumb_h
     end
 
-    -- ---- Log scrollbar (flush right) ----
+    -- ---- Log scrollbar ----
 
     local function log_sb_x() return UI.x + PX.PANEL_W - PX.SB_W end
     local function log_sb_y() return UI.y + log_y_off() end
