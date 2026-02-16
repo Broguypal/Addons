@@ -15,23 +15,6 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
---[[
-Mouse handler for the Wardrobe9 Mog House UI.
-
-Separated from w9_ui.lua so input handling can be edited independently
-of layout/rendering code.
-
-Usage (from w9_ui.lua):
-
-    local mouse = mousemod({
-        state, UI, PX, Rect, util, layout, row_h,
-        max_file_scroll, max_log_scroll,
-        ensure_file_scroll_valid, ensure_log_scroll_valid,
-        ensure_selection_visible,
-        do_scan, do_plan, do_exec,
-        SB_HIT_PAD_X, SB_HIT_PAD_Y,
-    })
-]]
 
 return function(ctx)
     local M = {}
