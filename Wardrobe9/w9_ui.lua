@@ -32,8 +32,8 @@ return function(res, util, scanmod, planner, execmod)
 
         max_rows = 22,
 
-        file_rows = 11,
-        log_rows  = 11,
+        file_rows = 6,
+        log_rows  = 16,
 
         row_h_px = 16,
         font = 'Consolas',
