@@ -67,14 +67,28 @@ return function(res, util, scanmod, planner, execmod)
         log_import  = {255, 160, 220, 255},
     }
 
-    local CHAR_W = 7.47
+    -- NOTE: Character width differs by font, size, UI scale, etc. A fixed constant breaks hit-testing
+    -- (wheel/scroll/click regions) on other PCs. We measure it at runtime using a hidden text object.
+    local CHAR_W_FALLBACK = 7.47
+
+    local _measured_char_w = nil
+    local _measured_row_h  = nil
+
+    local function char_w()
+        return _measured_char_w or CHAR_W_FALLBACK
+    end
+
+    local function row_h()
+        return _measured_row_h or UI.row_h_px
+    end
+
 
     local function panel_total_lines()
         return 2 + 2 + UI.max_rows + 2
     end
 
     local function panel_width_px()
-        return UI.w_chars * CHAR_W
+        return UI.w_chars * char_w()
     end
 
     -- ======================================================
@@ -280,8 +294,8 @@ return function(res, util, scanmod, planner, execmod)
 
         local spacing = 14
         local bw_chars = 10
-        local bw = bw_chars * CHAR_W
-        local bh = UI.row_h_px
+        local bw = bw_chars * char_w()
+        local bh = row_h()
 
         if which == 'scan' then
             return bx, by, bw, bh
@@ -295,8 +309,8 @@ return function(res, util, scanmod, planner, execmod)
     function Rect.file_list()
         local lx = UI.x + 12
         local ly = UI.y + 80
-        local lw = panel_width_px() - 24 - CHAR_W
-        local lh = UI.file_rows * UI.row_h_px
+        local lw = panel_width_px() - 24 - char_w()
+        local lh = UI.file_rows * row_h()
         return lx, ly, lw, lh
     end
 
@@ -304,7 +318,7 @@ return function(res, util, scanmod, planner, execmod)
         local lx, ly, lw, lh = Rect.file_list()
         local gap = 16
         local log_y = ly + lh + gap
-        local log_h = UI.log_rows * UI.row_h_px
+        local log_h = UI.log_rows * row_h()
         return lx, log_y, lw, log_h
     end
 
@@ -321,7 +335,7 @@ return function(res, util, scanmod, planner, execmod)
         local px = UI.x
         local pw = panel_width_px()
         local sx = px + pw + 6
-        return sx, ly, CHAR_W, lh
+        return sx, ly, char_w(), lh
     end
 
     function Rect.log_scrollbar()
@@ -329,7 +343,7 @@ return function(res, util, scanmod, planner, execmod)
         local px = UI.x
         local pw = panel_width_px()
         local sx = px + pw + 6
-        return sx, ly, CHAR_W, lh
+        return sx, ly, char_w(), lh
     end
 
     function Rect.file_thumb()
@@ -343,7 +357,7 @@ return function(res, util, scanmod, planner, execmod)
         end
 
         local ratio = visible / total
-        local thumb_h = math.max(UI.row_h_px, math.floor(th * ratio))
+        local thumb_h = math.max(row_h(), math.floor(th * ratio))
 
         local ms = max_file_scroll()
         local yoff = 0
@@ -365,7 +379,7 @@ return function(res, util, scanmod, planner, execmod)
         end
 
         local ratio = visible / total
-        local thumb_h = math.max(UI.row_h_px, math.floor(th * ratio))
+        local thumb_h = math.max(row_h(), math.floor(th * ratio))
 
         local ms = max_log_scroll()
         local yoff = 0
@@ -429,7 +443,7 @@ return function(res, util, scanmod, planner, execmod)
         track_obj:visible(true)
 
         local tx, ty, tw, th = thumb_rect_fn()
-        local rows = math.max(1, math.floor(th / UI.row_h_px))
+        local rows = math.max(1, math.floor(th / row_h()))
         thumb_obj:pos(tx, ty)
         thumb_obj:text(Render.make_block_lines(rows, 1))
         set_bg(thumb_obj, C.sb_thumb)
@@ -470,7 +484,7 @@ return function(res, util, scanmod, planner, execmod)
             local lx, ly = UI.x + 12, UI.y + 80
             Render.ensure_rows(t_file_rows, UI.file_rows)
             for i=1,UI.file_rows do
-                t_file_rows[i]:pos(lx, ly + (i-1)*UI.row_h_px)
+                t_file_rows[i]:pos(lx, ly + (i-1)*row_h())
             end
 
             local sx, sy = Rect.file_scrollbar()
@@ -488,7 +502,7 @@ return function(res, util, scanmod, planner, execmod)
 
             Render.ensure_rows(t_log_rows, UI.log_rows)
             for i=1,UI.log_rows do
-                t_log_rows[i]:pos(lx + 4, ly + (i-1)*UI.row_h_px)
+                t_log_rows[i]:pos(lx + 4, ly + (i-1)*row_h())
             end
 
             local sx, sy = Rect.log_scrollbar()
@@ -812,7 +826,7 @@ return function(res, util, scanmod, planner, execmod)
         local lx, ly, lw, lh = Rect.file_list()
         if not Rect.point_in(mx,my,lx,ly,lw,lh) then return false end
 
-        local vis = math.floor((my - ly) / UI.row_h_px) + 1
+        local vis = math.floor((my - ly) / row_h()) + 1
         if vis < 1 or vis > UI.file_rows then return false end
 
         local abs = state.file_scroll + vis
@@ -1108,6 +1122,33 @@ return function(res, util, scanmod, planner, execmod)
         util.set_ui_logger(function(level, s)
             push_log(level, s)
         end)
+
+
+        -- Measure font metrics so hit-testing and scroll regions work on other PCs (different fonts/UI scale).
+        do
+            local sample = string.rep('M', 20)
+            local t = texts.new(sample)
+            apply_text_defaults(t)
+            t:bg_alpha(0)
+            t:alpha(0)
+            t:pos(0, 0)
+            t:show()
+
+            local ok, w, h = pcall(function()
+                local ew, eh = t:extents()
+                return ew, eh
+            end)
+
+            if ok and type(w) == 'number' and w > 0 then
+                _measured_char_w = w / #sample
+            end
+            if ok and type(h) == 'number' and h > 0 then
+                _measured_row_h = math.max(UI.row_h_px, math.floor(h + 6))
+            end
+
+            -- Keep it hidden; Windower text objects may not support destroy reliably.
+            t:hide()
+        end
 
         ui.on_zone_or_login_refresh()
         layout()

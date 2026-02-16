@@ -258,7 +258,11 @@ return function(res, util, config, slots, bags, scanmod)
                     present = present + 1
 
                 elseif (idx.in_dest_name[info.name] or 0) > 0 then
+                    -- Augments were explicitly specified in the GearSwap file, so we must match augments exactly.
+                    -- If we only have the same base name (different augments), treat this as MISSING for planning,
+                    -- but also record it as a mismatch for UI clarity.
                     mismatch[#mismatch+1] = { key=key, name=info.name, aug=info.aug, group=info.group }
+                    missing[#missing+1]  = { key=key, name=info.name, aug=info.aug, group=info.group, reason='augment_mismatch' }
 
                 else
                     local excl_exact = (idx.in_excl_exact[key] or 0) > 0
