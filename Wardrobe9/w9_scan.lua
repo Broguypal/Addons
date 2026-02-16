@@ -129,7 +129,7 @@ return function(res, extdata, util, slots, ADDON_PATH, SCAN_FILE)
     function M.load_scan_cache()
         local ok, t = pcall(dofile, SCAN_FILE)
         if not ok or type(t) ~= 'table' or type(t.items) ~= 'table' then
-            return nil, 'Scan cache not found or invalid. Run: //wardrobe9 scan'
+            return nil, 'Scan cache not found or invalid. In the Mog House UI, press SCAN.'
         end
         return t, nil
     end

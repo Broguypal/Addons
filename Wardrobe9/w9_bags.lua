@@ -55,7 +55,7 @@ return function(res, util, config)
     end
 
     function M.pick_return_bag_id()
-        local order = config.RETURN_BAG_ORDER or config.RETURN_BAG_PREFER or {}
+        local order = config.RETURN_BAG_ORDER or {}
         for _, bn in ipairs(order) do
             local id = M.bag_id_by_name(bn)
             if id and M.bag_enabled(id) then
@@ -85,18 +85,6 @@ return function(res, util, config)
                         else
                             disabled[#disabled+1] = bn
                         end
-                    end
-                end
-            end
-        else
-            -- Backward-compatible legacy list.
-            for _, bn in ipairs(config.DEST_BAG_NAMES or {}) do
-                local id = M.bag_id_by_name(bn)
-                if id then
-                    if M.bag_enabled(id) then
-                        dest[#dest+1] = { id=id, name=(res.bags[id] and res.bags[id].en) or bn }
-                    else
-                        disabled[#disabled+1] = bn
                     end
                 end
             end

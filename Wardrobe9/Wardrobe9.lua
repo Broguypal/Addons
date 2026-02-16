@@ -33,7 +33,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 _addon.name = 'wardrobe9'
 _addon.author = 'Broguypal'
 _addon.version = '1.0'
-_addon.commands = {'wardrobe9','w9'}
 
 local res = require('resources')
 local extdata = require('extdata')
@@ -54,46 +53,3 @@ local scan     = load_local('w9_scan.lua')(res, extdata, util, slots, ADDON_PATH
 local planner  = load_local('w9_planner.lua')(res, util, config, slots, bags, scan)
 local execmod  = load_local('w9_executor.lua')(res, extdata, util)
 local ui       = load_local('w9_ui.lua')(res, util, scan, planner, execmod)
-
-
--- ======================================================
--- Command handler
--- ======================================================
-
-local last_plan = nil
-
-windower.register_event('addon command', function(cmd, ...)
-    cmd = (cmd or ''):lower()
-    local args = {...}
-
-    if cmd == '' then
-        util.err('Usage: //wardrobe9 scan | //wardrobe9 plan <jobfile.lua> | //wardrobe9 exec')
-        return
-    end
-
-    if cmd == 'scan' then
-        local ok, e = scan.scan_all_bags_to_cache()
-        if not ok then util.err(e); return end
-        util.msg('Scan complete. Now run: //wardrobe9 plan <jobfile.lua>')
-        return
-    end
-
-    if cmd == 'plan' then
-        local jobfile = args[1]
-        if not jobfile then util.err('plan requires a job file, e.g. //wardrobe9 plan THF.lua'); return end
-        local plan, e = planner.plan_for_file(jobfile)
-        if not plan then util.err(e); return end
-        last_plan = plan
-        planner.print_plan(plan)
-        util.msg('Use //wardrobe9 exec to run this plan.')
-        return
-    end
-
-    if cmd == 'exec' then
-        if not last_plan then util.err('No stored plan. Run //wardrobe9 plan <jobfile.lua> first.'); return end
-        execmod.exec_plan(last_plan)
-        return
-    end
-
-    util.err('Unknown command. Usage: //wardrobe9 scan | //wardrobe9 plan <jobfile.lua> | //wardrobe9 exec')
-end)

@@ -219,7 +219,7 @@ return function(res, util, config, slots, bags, scanmod)
     function M.plan_for_file(jobfile)
         local scan, se = scanmod.load_scan_cache()
         if not scan then
-            return nil, ('No scan cache. Run: //wardrobe9 scan\n(%s)'):format(tostring(se))
+            return nil, ('No scan cache. In the Mog House UI, press SCAN.\n(%s)'):format(tostring(se))
         end
 
         local needed, path_or_err = walk_text_collect(jobfile)
@@ -229,6 +229,9 @@ return function(res, util, config, slots, bags, scanmod)
 		local path = path_or_err
 
         local dest_bags, disabled_wardrobes = bags.build_dest_bags()
+		if #dest_bags == 0 then
+			return nil, 'No destination wardrobes enabled. In w9_config.lua, set DEST_BAGS for at least one of: Wardrobe, Wardrobe 2..Wardrobe 8 = true.'
+		end
         local idx = index_scan_items(scan)
         local warn_aug_pre = {}
 		

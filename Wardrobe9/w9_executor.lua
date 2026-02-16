@@ -65,7 +65,7 @@ return function(res, extdata, util)
 
     function M.exec_plan(plan)
         if executing then util.warn('Already executing.'); return end
-        if not plan or not plan.moves then util.err('No stored plan. Run //wardrobe9 plan <jobfile.lua> first.'); return end
+        if not plan or not plan.moves then util.err('No stored plan. In the Mog House UI, press PLAN first.'); return end
         if #plan.moves == 0 then util.msg('Nothing to do.'); return end
 
         if not have_native_move() then
@@ -96,13 +96,13 @@ return function(res, extdata, util)
                     executing = false
                     util.err(('ABORT: source slot changed before move %d. Expected "%s" but found "%s" at %s:slot%d')
                         :format(i-1, tostring(mv.item_key), tostring(cur), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
-                    util.err('Re-run //wardrobe9 scan then //wardrobe9 plan, then try exec again.')
+                    util.err('Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.')
                     return
                 elseif not cur then
                     executing = false
                     util.err(('ABORT: source slot is empty/unknown before move %d. Expected "%s" at %s:slot%d')
                         :format(i-1, tostring(mv.item_key), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
-                    util.err('Re-run //wardrobe9 scan then //wardrobe9 plan, then try exec again.')
+                    util.err('Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.')
                     return
                 end
             end

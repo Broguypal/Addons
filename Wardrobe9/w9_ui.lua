@@ -383,11 +383,6 @@ return function(res, util, scanmod, planner, execmod)
     local SB_HIT_PAD_X = 18  -- vertical forgiveness for grabbing the scrollbar/thumb
     local SB_HIT_PAD_Y = 18  -- vertical forgiveness for grabbing the scrollbar/thumb
 
-    function Rect.point_in_xpad(mx, my, x, y, w, h, pad_x)
-        pad_x = pad_x or 0
-        return Rect.point_in(mx, my, x - pad_x, y, w + pad_x*2, h)
-    end
-
     function Rect.point_in_pad(mx, my, x, y, w, h, pad_x, pad_y)
         pad_x = pad_x or 0
         pad_y = pad_y or 0
