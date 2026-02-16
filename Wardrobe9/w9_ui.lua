@@ -134,12 +134,16 @@ return function(res, util, scanmod, planner, execmod)
     local t_file_rows = {}
     local t_file_sb_track = texts.new('')
     local t_file_sb_thumb = texts.new('')
+    local t_file_sb_up = texts.new('')
+    local t_file_sb_down = texts.new('')
 
     local t_log_title = texts.new('')
     local t_log_panel = texts.new('')
     local t_log_rows = {}
     local t_log_sb_track = texts.new('')
     local t_log_sb_thumb = texts.new('')
+    local t_log_sb_up = texts.new('')
+    local t_log_sb_down = texts.new('')
 
     local function apply_text_defaults(t)
         t:font(UI.font)
@@ -330,21 +334,58 @@ return function(res, util, scanmod, planner, execmod)
         return hx, hy, hw, hh
     end
 
-    function Rect.file_scrollbar()
-        local _, ly, _, lh = Rect.file_list()
-        local px = UI.x
-        local pw = panel_width_px()
-        local sx = px + pw + 6
-        return sx, ly, char_w(), lh
-    end
+    function Rect.file_scrollbar_outer()
+    local _, ly, _, lh = Rect.file_list()
+    local px = UI.x
+    local pw = panel_width_px()
+    local sx = px + pw + 6
+    return sx, ly, char_w(), lh
+end
 
-    function Rect.log_scrollbar()
-        local _, ly, _, lh = Rect.log()
-        local px = UI.x
-        local pw = panel_width_px()
-        local sx = px + pw + 6
-        return sx, ly, char_w(), lh
-    end
+function Rect.file_scrollbar()
+    -- Track area excludes the up/down buttons (1 row each) so hit-testing works reliably.
+    local sx, sy, sw, sh = Rect.file_scrollbar_outer()
+    local btn_h = row_h()
+    local track_h = math.max(btn_h, sh - (btn_h * 2))
+    return sx, sy + btn_h, sw, track_h
+end
+
+function Rect.file_sb_upbtn()
+    local sx, sy, sw, sh = Rect.file_scrollbar_outer()
+    return sx, sy, sw, row_h()
+end
+
+function Rect.file_sb_downbtn()
+    local sx, sy, sw, sh = Rect.file_scrollbar_outer()
+    local btn_h = row_h()
+    return sx, sy + sh - btn_h, sw, btn_h
+end
+
+    function Rect.log_scrollbar_outer()
+    local _, ly, _, lh = Rect.log()
+    local px = UI.x
+    local pw = panel_width_px()
+    local sx = px + pw + 6
+    return sx, ly, char_w(), lh
+end
+
+function Rect.log_scrollbar()
+    local sx, sy, sw, sh = Rect.log_scrollbar_outer()
+    local btn_h = row_h()
+    local track_h = math.max(btn_h, sh - (btn_h * 2))
+    return sx, sy + btn_h, sw, track_h
+end
+
+function Rect.log_sb_upbtn()
+    local sx, sy, sw, sh = Rect.log_scrollbar_outer()
+    return sx, sy, sw, row_h()
+end
+
+function Rect.log_sb_downbtn()
+    local sx, sy, sw, sh = Rect.log_scrollbar_outer()
+    local btn_h = row_h()
+    return sx, sy + sh - btn_h, sw, btn_h
+end
 
     function Rect.file_thumb()
         local tx, ty, tw, th = Rect.file_scrollbar()
@@ -455,9 +496,9 @@ return function(res, util, scanmod, planner, execmod)
         local objs = {
             t_panel, t_title, t_status,
             t_btn_scan, t_btn_plan, t_btn_exec,
-            t_file_sb_track, t_file_sb_thumb,
+            t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
             t_log_title, t_log_panel,
-            t_log_sb_track, t_log_sb_thumb,
+            t_log_sb_track, t_log_sb_thumb, t_log_sb_up, t_log_sb_down,
         }
         for _,t in ipairs(objs) do
             if t then t:visible(v) end
@@ -487,6 +528,11 @@ return function(res, util, scanmod, planner, execmod)
                 t_file_rows[i]:pos(lx, ly + (i-1)*row_h())
             end
 
+            local ux, uy = Rect.file_sb_upbtn()
+            t_file_sb_up:pos(ux, uy)
+            local dx, dy = Rect.file_sb_downbtn()
+            t_file_sb_down:pos(dx, dy)
+
             local sx, sy = Rect.file_scrollbar()
             t_file_sb_track:pos(sx, sy)
 
@@ -505,6 +551,11 @@ return function(res, util, scanmod, planner, execmod)
                 t_log_rows[i]:pos(lx + 4, ly + (i-1)*row_h())
             end
 
+            local ux, uy = Rect.log_sb_upbtn()
+            t_log_sb_up:pos(ux, uy)
+            local dx, dy = Rect.log_sb_downbtn()
+            t_log_sb_down:pos(dx, dy)
+
             local sx, sy = Rect.log_scrollbar()
             t_log_sb_track:pos(sx, sy)
 
@@ -522,10 +573,14 @@ return function(res, util, scanmod, planner, execmod)
         apply_text_defaults(t_btn_exec)
         apply_text_defaults(t_file_sb_track)
         apply_text_defaults(t_file_sb_thumb)
+        apply_text_defaults(t_file_sb_up)
+        apply_text_defaults(t_file_sb_down)
         apply_text_defaults(t_log_title)
         apply_text_defaults(t_log_panel)
         apply_text_defaults(t_log_sb_track)
         apply_text_defaults(t_log_sb_thumb)
+        apply_text_defaults(t_log_sb_up)
+        apply_text_defaults(t_log_sb_down)
         if not UI.visible then
             Render.ensure_rows(t_file_rows, UI.file_rows)
             Render.ensure_rows(t_log_rows, UI.log_rows)
@@ -585,7 +640,22 @@ return function(res, util, scanmod, planner, execmod)
         end
 
         -- File scrollbar
-        Render.scrollbar(t_file_sb_track, t_file_sb_thumb, Rect.file_scrollbar, Rect.file_thumb, UI.file_rows)
+        do
+            local track_rows = math.max(1, UI.file_rows - 2)
+            Render.scrollbar(t_file_sb_track, t_file_sb_thumb, Rect.file_scrollbar, Rect.file_thumb, track_rows)
+        end
+
+        -- File scrollbar buttons
+        do
+            local function render_sb_btn(t, which, label)
+                t:text(label)
+                set_color(t, C.btn_txt)
+                if state.hover == which then set_bg(t, C.btn_hov) else set_bg(t, C.sb_track) end
+                t:visible(true)
+            end
+            render_sb_btn(t_file_sb_up, 'file_sb_up', '^')
+            render_sb_btn(t_file_sb_down, 'file_sb_down', 'v')
+        end
 
         -- Log title + panel background
         do
@@ -621,7 +691,22 @@ return function(res, util, scanmod, planner, execmod)
         end
 
         -- Log scrollbar
-        Render.scrollbar(t_log_sb_track, t_log_sb_thumb, Rect.log_scrollbar, Rect.log_thumb, UI.log_rows)
+        do
+            local track_rows = math.max(1, UI.log_rows - 2)
+            Render.scrollbar(t_log_sb_track, t_log_sb_thumb, Rect.log_scrollbar, Rect.log_thumb, track_rows)
+        end
+
+        -- Log scrollbar buttons
+        do
+            local function render_sb_btn(t, which, label)
+                t:text(label)
+                set_color(t, C.btn_txt)
+                if state.hover == which then set_bg(t, C.btn_hov) else set_bg(t, C.sb_track) end
+                t:visible(true)
+            end
+            render_sb_btn(t_log_sb_up, 'log_sb_up', '^')
+            render_sb_btn(t_log_sb_down, 'log_sb_down', 'v')
+        end
 
         reposition_all()
     end
@@ -807,7 +892,26 @@ return function(res, util, scanmod, planner, execmod)
             local x,y,w,h = Rect.btn('exec')
             if Rect.point_in(mx,my,x,y,w,h) then state.hover = 'exec' end
         end
+do
+    local x,y,w,h = Rect.file_sb_upbtn()
+    if Rect.point_in(mx,my,x,y,w,h) then state.hover = 'file_sb_up' end
+end
+do
+    local x,y,w,h = Rect.file_sb_downbtn()
+    if Rect.point_in(mx,my,x,y,w,h) then state.hover = 'file_sb_down' end
+end
+do
+    local x,y,w,h = Rect.log_sb_upbtn()
+    if Rect.point_in(mx,my,x,y,w,h) then state.hover = 'log_sb_up' end
+end
+do
+    local x,y,w,h = Rect.log_sb_downbtn()
+    if Rect.point_in(mx,my,x,y,w,h) then state.hover = 'log_sb_down' end
+end
     end
+    local scroll_file_by
+    local scroll_log_by
+
 
     local function click_buttons(mx, my)
         local x,y,w,h = Rect.btn('scan')
@@ -818,6 +922,17 @@ return function(res, util, scanmod, planner, execmod)
 
         x,y,w,h = Rect.btn('exec')
         if Rect.point_in(mx,my,x,y,w,h) then do_exec(); return true end
+
+        -- Scrollbar buttons (single-row scroll)
+        x,y,w,h = Rect.file_sb_upbtn()
+        if Rect.point_in(mx,my,x,y,w,h) then return scroll_file_by(-1) end
+        x,y,w,h = Rect.file_sb_downbtn()
+        if Rect.point_in(mx,my,x,y,w,h) then return scroll_file_by(1) end
+
+        x,y,w,h = Rect.log_sb_upbtn()
+        if Rect.point_in(mx,my,x,y,w,h) then return scroll_log_by(-3) end
+        x,y,w,h = Rect.log_sb_downbtn()
+        if Rect.point_in(mx,my,x,y,w,h) then return scroll_log_by(3) end
 
         return false
     end
@@ -839,8 +954,24 @@ return function(res, util, scanmod, planner, execmod)
         end
         return false
     end
+    scroll_file_by = function(rows)
+    rows = tonumber(rows) or 0
+    if rows == 0 then return false end
+    state.file_scroll = (state.file_scroll or 0) + rows
+    ensure_file_scroll_valid()
+    layout()
+    return true
+end
+    scroll_log_by = function(rows)
+    rows = tonumber(rows) or 0
+    if rows == 0 then return false end
+    state.log_scroll = (state.log_scroll or 0) + rows
+    ensure_log_scroll_valid()
+    layout()
+    return true
+end
 
-    local function scroll_file_list(delta)
+    function scroll_file_list(delta)
         if delta == 0 then return false end
         local step = (delta > 0) and -3 or 3
         state.file_scroll = (state.file_scroll or 0) + step
