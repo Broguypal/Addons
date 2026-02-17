@@ -259,9 +259,6 @@ return function(res, util, config, slots, bags, scanmod)
                     present = present + 1
 
                 elseif (idx.in_dest_name[info.name] or 0) > 0 then
-                    -- Augments were explicitly specified in the GearSwap file, so we must match augments exactly.
-                    -- If we only have the same base name (different augments), treat this as MISSING for planning,
-                    -- but also record it as a mismatch for UI clarity.
                     mismatch[#mismatch+1] = { key=key, name=info.name, aug=info.aug, group=info.group }
                     missing[#missing+1]  = { key=key, name=info.name, aug=info.aug, group=info.group, reason='augment_mismatch' }
 
@@ -602,7 +599,7 @@ return function(res, util, config, slots, bags, scanmod)
                             dest_id = ev.bag_id
                         end
                     else
-                        -- SWAP mode (default): evict same-group item first; free slots as fallback
+                        -- SWAP mode: evict same-group item first; free slots as fallback
                         if return_id and cands and #cands > 0 then
                             local ev = table.remove(cands, 1)
 
@@ -651,13 +648,6 @@ return function(res, util, config, slots, bags, scanmod)
             plan.notes[#plan.notes+1] =
                 'This plan contains missing items. Please use /itemsearch "item name" or check your storage slips to see if the item exists. You may need to scan again if your inventory was not fully loaded during initial scan.'
         end
-
-        -- ======================================================
-        -- Extra copy policy:
-        -- If the lua references a name only once, but multiple enabled copies exist across bags,
-        -- pull ALL enabled copies into wardrobes. Each extra import MUST be paired with an EVICT
-        -- of an unused same-group item (not referenced in the lua).
-        -- ======================================================
 
         do
             local dest_ids = {}
