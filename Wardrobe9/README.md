@@ -103,6 +103,7 @@ you to adjust how the addon behaves.
 
 Common configurable options include:
 
+-   Setting the default position of the User Interface.
 -   Locking specific items from movement.
 -   Preventing certain equipment categories (weapons/Head/etc.) from being moved.
 -	Setting source bags to be ignored.
