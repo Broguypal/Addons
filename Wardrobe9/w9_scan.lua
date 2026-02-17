@@ -66,7 +66,7 @@ return function(res, extdata, util, slots, ADDON_PATH, SCAN_FILE)
                             name = util.trim(name)
                             local augstr = decode_augstr(entry)
 
-                            local group = nil
+							local group = nil
                             local fmask = nil
 
                             if type(entry.flags2) == 'number' then
@@ -76,26 +76,7 @@ return function(res, extdata, util, slots, ADDON_PATH, SCAN_FILE)
                             end
 
                             if type(fmask) == 'number' then
-                                local function has(slotname)
-                                    local m = slots.FALLBACK_MASK[slotname]
-                                    if not m then return false end
-                                    local r2 = slots.band(fmask, m)
-                                    return r2 ~= nil and r2 ~= 0
-                                end
-
-                                if has('head') then group = 'head'
-                                elseif has('body') then group = 'body'
-                                elseif has('hands') then group = 'hands'
-                                elseif has('legs') then group = 'legs'
-                                elseif has('feet') then group = 'feet'
-                                elseif has('neck') then group = 'neck'
-                                elseif has('waist') then group = 'waist'
-                                elseif has('back') then group = 'back'
-                                elseif has('left_ear') or has('right_ear') then group = 'ear'
-                                elseif has('left_ring') or has('right_ring') then group = 'ring'
-                                elseif has('ammo') then group = 'ammo'
-                                elseif has('main') or has('sub') or has('range') then group = 'weapon'
-                                end
+                                group = slots.group_from_bitmask(fmask)
                             end
 
                             if not group or group == '' then

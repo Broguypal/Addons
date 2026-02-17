@@ -125,6 +125,29 @@ return function(res)
         return nil
     end
 
+	function M.group_from_bitmask(mask)
+		if type(mask) ~= 'number' then return nil end
+		local function has(slotname)
+			local m = FALLBACK_MASK[slotname]
+			if not m then return false end
+			local r = band(mask, m)
+			return r ~= nil and r ~= 0
+		end
+		if has('head') then return 'head' end
+		if has('body') then return 'body' end
+		if has('hands') then return 'hands' end
+		if has('legs') then return 'legs' end
+		if has('feet') then return 'feet' end
+		if has('neck') then return 'neck' end
+		if has('waist') then return 'waist' end
+		if has('back') then return 'back' end
+		if has('left_ear') or has('right_ear') then return 'ear' end
+		if has('left_ring') or has('right_ring') then return 'ring' end
+		if has('ammo') then return 'ammo' end
+		if has('main') or has('sub') or has('range') then return 'weapon' end
+		return nil
+	end
+
     function M.band(a, m) return band(a, m) end
 
     return M

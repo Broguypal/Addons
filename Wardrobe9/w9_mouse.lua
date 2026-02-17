@@ -88,16 +88,6 @@ return function(ctx)
         return true
     end
 
-    local function scroll_file_list(delta)
-        if delta == 0 then return false end
-        return scroll_file_by(delta > 0 and -3 or 3)
-    end
-
-    local function scroll_log(delta)
-        if delta == 0 then return false end
-        return scroll_log_by(delta > 0 and -3 or 3)
-    end
-
     -- ======================================================
     -- Button / file-list clicks
     -- ======================================================

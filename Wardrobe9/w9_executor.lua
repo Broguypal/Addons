@@ -92,17 +92,18 @@ return function(res, extdata, util)
             -- Safety: verify the planned source slot still contains the expected item.
             if mv.item_key and mv.from_bag_id and mv.from_slot then
                 local cur = slot_item_key(mv.from_bag_id, mv.from_slot)
+                local retry_msg = 'Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.'
                 if cur and cur ~= mv.item_key then
                     executing = false
                     util.err(('ABORT: source slot changed before move %d. Expected "%s" but found "%s" at %s:slot%d')
                         :format(i-1, tostring(mv.item_key), tostring(cur), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
-                    util.err('Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.')
+                    util.err(retry_msg)
                     return
                 elseif not cur then
                     executing = false
                     util.err(('ABORT: source slot is empty/unknown before move %d. Expected "%s" at %s:slot%d')
                         :format(i-1, tostring(mv.item_key), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
-                    util.err('Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.')
+                    util.err(retry_msg)
                     return
                 end
             end

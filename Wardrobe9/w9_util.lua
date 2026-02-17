@@ -262,7 +262,7 @@ return function(config)
         name = M.norm_slashes(name):gsub('^/','')
 
         local root = windower_root()
-        local _root, _char, pname = M.get_gearswap_data_paths()
+        local _, _, pname = M.get_gearswap_data_paths()
 
         local addons_cases = { 'addons', 'Addons' }
         local gs_cases = { 'GearSwap', 'gearswap' }

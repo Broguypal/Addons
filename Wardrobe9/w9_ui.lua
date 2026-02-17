@@ -800,7 +800,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
 
         local plan, e = planner.plan_for_file(rel)
 		if not plan then
-            push_log('err', tostring(e))
+            clear_log()
+            state.status = tostring(e)
             layout()
             return
         end
