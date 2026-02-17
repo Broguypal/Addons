@@ -18,7 +18,7 @@ Wardrobe9 is designed to be used **through its User Interface inside your Mog Ho
 -   The **full interface is only available while you are inside your Mog House.**
 -   This is where scanning, planning, and execution occur.
 
-Note: In windowed mode, button positions may appear slightly offset
+**Note**: In windowed mode, button positions may appear slightly offset
 from their click targets. This is a known Windower 4 limitation where
 text rendering and mouse coordinates can diverge. Borderless Windowed 
 or Fullscreen mode is recommended for the best experience.
