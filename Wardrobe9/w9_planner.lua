@@ -216,7 +216,8 @@ return function(res, util, config, slots, bags, scanmod)
     -- Planning
     -- ======================================================
 
-    function M.plan_for_file(jobfile)
+    function M.plan_for_file(jobfile, mode)
+        mode = (mode == 'fill') and 'fill' or 'swap'
         local scan, se = scanmod.load_scan_cache()
         if not scan then
             return nil, 'No scan cache. In the Mog House UI, press SCAN.'
@@ -388,6 +389,7 @@ return function(res, util, config, slots, bags, scanmod)
             required_name_only = {},
             import_only = {},
             required_name_count = {},
+            mode = mode,
         }
 
         if #disabled_wardrobes > 0 then
@@ -581,21 +583,42 @@ return function(res, util, config, slots, bags, scanmod)
                     local dest_id = nil
 
                     local cands = evict_candidates[group]
-                    if return_id and cands and #cands > 0 then
-                        local ev = table.remove(cands, 1)
 
-                        plan.moves[#plan.moves+1] = {
-                            type='evict',
-                            from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
-                            to_bag_id=return_id, to_bag_name=return_name,
-                            item_name=ev.name, group=group,
-                            item_key=ev.key or (ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
-                        }
-
-                        free_by_dest[ev.bag_id] = (free_by_dest[ev.bag_id] or 0) + 1
-                        dest_id = ev.bag_id
-                    else
+                    if mode == 'fill' then
+                        -- FILL mode: use free wardrobe slots first; evict only as last resort
                         dest_id = pick_any_dest_with_space()
+                        if not dest_id and return_id and cands and #cands > 0 then
+                            local ev = table.remove(cands, 1)
+
+                            plan.moves[#plan.moves+1] = {
+                                type='evict',
+                                from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
+                                to_bag_id=return_id, to_bag_name=return_name,
+                                item_name=ev.name, group=group,
+                                item_key=ev.key or (ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
+                            }
+
+                            free_by_dest[ev.bag_id] = (free_by_dest[ev.bag_id] or 0) + 1
+                            dest_id = ev.bag_id
+                        end
+                    else
+                        -- SWAP mode (default): evict same-group item first; free slots as fallback
+                        if return_id and cands and #cands > 0 then
+                            local ev = table.remove(cands, 1)
+
+                            plan.moves[#plan.moves+1] = {
+                                type='evict',
+                                from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
+                                to_bag_id=return_id, to_bag_name=return_name,
+                                item_name=ev.name, group=group,
+                                item_key=ev.key or (ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
+                            }
+
+                            free_by_dest[ev.bag_id] = (free_by_dest[ev.bag_id] or 0) + 1
+                            dest_id = ev.bag_id
+                        else
+                            dest_id = pick_any_dest_with_space()
+                        end
                     end
 
                     if not dest_id then
@@ -729,7 +752,7 @@ return function(res, util, config, slots, bags, scanmod)
     end
 
     function M.print_plan(plan)
-        util.msg(('File: %s'):format(plan.path or plan.file))
+        util.msg(('File: %s  [mode: %s]'):format(plan.path or plan.file, plan.mode or 'swap'))
         local miss_n = plan.missing and #plan.missing or 0
         local mm_n   = plan.mismatch and #plan.mismatch or 0
         util.msg(('Required (text-scan): %d | Present in wardrobes: %d | Located in excluded bags: %d | Missing: %d | Aug-mismatch: %d')

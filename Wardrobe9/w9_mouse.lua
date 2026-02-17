@@ -31,9 +31,10 @@ return function(ctx)
     local ensure_file_scroll_valid = ctx.ensure_file_scroll_valid
     local ensure_log_scroll_valid  = ctx.ensure_log_scroll_valid
     local ensure_selection_visible = ctx.ensure_selection_visible
-    local do_scan  = ctx.do_scan
-    local do_plan  = ctx.do_plan
-    local do_exec  = ctx.do_exec
+    local do_scan      = ctx.do_scan
+    local do_plan      = ctx.do_plan
+    local do_exec_swap = ctx.do_exec_swap
+    local do_exec_fill = ctx.do_exec_fill
     local SB_HIT_PAD_X = ctx.SB_HIT_PAD_X
     local SB_HIT_PAD_Y = ctx.SB_HIT_PAD_Y
 
@@ -46,7 +47,8 @@ return function(ctx)
         local checks = {
             {'scan',         Rect.btn,            'scan'},
             {'plan',         Rect.btn,            'plan'},
-            {'exec',         Rect.btn,            'exec'},
+            {'swap',         Rect.btn,            'swap'},
+            {'fill',         Rect.btn,            'fill'},
             {'file_sb_up',   Rect.file_sb_upbtn},
             {'file_sb_down', Rect.file_sb_downbtn},
             {'log_sb_up',    Rect.log_sb_upbtn},
@@ -99,8 +101,11 @@ return function(ctx)
         x, y, w, h = Rect.btn('plan')
         if Rect.point_in(mx, my, x, y, w, h) then do_plan(); return true end
 
-        x, y, w, h = Rect.btn('exec')
-        if Rect.point_in(mx, my, x, y, w, h) then do_exec(); return true end
+        x, y, w, h = Rect.btn('swap')
+        if Rect.point_in(mx, my, x, y, w, h) then do_exec_swap(); return true end
+
+        x, y, w, h = Rect.btn('fill')
+        if Rect.point_in(mx, my, x, y, w, h) then do_exec_fill(); return true end
 
         -- Scrollbar arrow buttons
         x, y, w, h = Rect.file_sb_upbtn()

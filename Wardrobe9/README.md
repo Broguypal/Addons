@@ -28,8 +28,10 @@ Wardrobe9 reads your selected GearSwap file and:
 1.  Identifies every item referenced in the Lua.
 2.  Checks whether you currently have that item.
 3.  Determines whether it is already in a wardrobe.
-4.  Automatically swaps it into an appropriate wardrobe if needed.
-5.  Replaces unused items of the same equipment type to make room.
+4.  Automatically moves it into an appropriate wardrobe if needed.
+5.  Offers two execution modes: **Swap** (replaces unused items of the
+    same equipment type to make room) or **Fill** (uses free wardrobe
+    slots first, only swapping as a last resort).
 
 This removes the need to manually check bags, compare sets, or move
 items one by one.
@@ -61,13 +63,20 @@ gear.
 
 ------------------------------------------------------------------------
 
-### 🔁 Automatic Swapping
+### 🔁 Automatic Swapping & Filling
 
-If an item is found but not stored in a wardrobe:
+If an item is found but not stored in a wardrobe, Wardrobe9 can move it
+in using one of two modes:
 
--   Wardrobe9 will move it into a wardrobe automatically and swap out an unused item of the same geartype.
--   If there are no unused items in the wardrobe, it will move the item to a wardrobe with available space without swapping.
--   Movements are planned first, then executed in a controlled way.
+-   **Swap mode** — Prioritises swapping out an unused item of the same
+    equipment type (ring-for-ring, body-for-body, etc.) to make room.
+    If no same-type item is available to evict, it falls back to any
+    free wardrobe slot.
+-   **Fill mode** — Prioritises filling empty wardrobe slots first.
+    Only evicts an unused same-type item if no free space remains.
+
+Both modes are available as buttons in the UI after planning.
+Movements are always planned first, then executed in a controlled way.
 
 No more manual inventory juggling.
 
@@ -78,10 +87,8 @@ No more manual inventory juggling.
 Wardrobe9 follows a safe workflow inside the UI:
 
 1.  **Scan** -- Build a list of all items you own and identify .lua files in your Gearswap folder.
-2.  **Plan** -- Compare your gear against the selected Lua.
-3.  **Execute** -- Perform only the necessary swaps.
-
-This ensures changes are deliberate and predictable.
+2.  **Plan** -- Compare your gear against the selected Lua and preview the proposed moves.
+3.  **Swap** or **Fill** -- Execute the plan using your preferred mode.
 
 ------------------------------------------------------------------------
 
@@ -99,7 +106,7 @@ Common configurable options include:
 
 ### Defaults
 
-By default, **weapons and items in a players inventory are not moved** in automatic wardrobe
+By default, **weapons** and **items in a players inventory** are *not* moved in automatic wardrobe
 management.
 
 This is intentional to prevent accidental movement of situational weapons and to leave your inventory untouched.

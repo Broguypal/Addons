@@ -186,7 +186,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
 
     local t_btn_scan = texts.new('')
     local t_btn_plan = texts.new('')
-    local t_btn_exec = texts.new('')
+    local t_btn_swap = texts.new('')
+    local t_btn_fill = texts.new('')
 
     local t_file_rows     = {}
     local t_file_sb_track = texts.new('')
@@ -355,8 +356,10 @@ return function(res, util, scanmod, planner, execmod, mousemod)
             return bx, by, PX.BTN_W, PX.BTN_H
         elseif which == 'plan' then
             return bx + PX.BTN_W + PX.BTN_GAP, by, PX.BTN_W, PX.BTN_H
-        else
+        elseif which == 'swap' then
             return bx + (PX.BTN_W + PX.BTN_GAP) * 2, by, PX.BTN_W, PX.BTN_H
+        else -- 'fill'
+            return bx + (PX.BTN_W + PX.BTN_GAP) * 3, by, PX.BTN_W, PX.BTN_H
         end
     end
 
@@ -515,7 +518,7 @@ return function(res, util, scanmod, planner, execmod, mousemod)
     local function set_all_visible(v)
         local objs = {
             t_panel, t_title, t_status,
-            t_btn_scan, t_btn_plan, t_btn_exec,
+            t_btn_scan, t_btn_plan, t_btn_swap, t_btn_fill,
             t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
             t_log_title,
             t_log_sb_track, t_log_sb_thumb, t_log_sb_up, t_log_sb_down,
@@ -538,7 +541,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         do
             local bx, by = Rect.btn('scan');  t_btn_scan:pos(bx, by)
             bx, by = Rect.btn('plan');        t_btn_plan:pos(bx, by)
-            bx, by = Rect.btn('exec');        t_btn_exec:pos(bx, by)
+            bx, by = Rect.btn('swap');        t_btn_swap:pos(bx, by)
+            bx, by = Rect.btn('fill');        t_btn_fill:pos(bx, by)
         end
 
         -- File rows
@@ -579,7 +583,7 @@ return function(res, util, scanmod, planner, execmod, mousemod)
     local function layout()
         local all_fixed = {
             t_panel, t_title, t_status,
-            t_btn_scan, t_btn_plan, t_btn_exec,
+            t_btn_scan, t_btn_plan, t_btn_swap, t_btn_fill,
             t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
             t_log_title,
             t_log_sb_track, t_log_sb_thumb, t_log_sb_up, t_log_sb_down,
@@ -619,7 +623,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
             end
             rbtn(t_btn_scan, '[ SCAN ]', 'scan')
             rbtn(t_btn_plan, '[ PLAN ]', 'plan')
-            rbtn(t_btn_exec, '[ EXEC ]', 'exec')
+            rbtn(t_btn_swap, '[ SWAP ]', 'swap')
+            rbtn(t_btn_fill, '[ FILL ]', 'fill')
         end
 
         -- File rows
@@ -789,7 +794,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         layout()
     end
 
-    local function do_plan()
+    local function do_plan(mode)
+        mode = mode or 'swap'
         local rel = selected_file_rel()
         if not rel then
             state.status = 'Select a lua file first.'
@@ -798,7 +804,7 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         end
         clear_log()
 
-        local plan, e = planner.plan_for_file(rel)
+        local plan, e = planner.plan_for_file(rel, mode)
 		if not plan then
             clear_log()
             state.status = tostring(e)
@@ -807,21 +813,51 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         end
 
         state.last_plan = plan
-        state.status = ('Planned %d moves for %s.'):format(plan.moves and #plan.moves or 0, rel)
+        state.status = ('Planned %d moves for %s [%s].'):format(plan.moves and #plan.moves or 0, rel, mode)
         planner.print_plan(plan)
-        util.msg('Please press EXEC to execute the plan.')
+        util.msg('Review the plan above, then press [ SWAP ] or [ FILL ] to execute.')
+        util.msg('SWAP: evicts same-group items (ring-for-ring, etc.) to make room, then imports into the same folder.')
+        util.msg('FILL: imports into free wardrobe slots first, only evicts if no space remains.')
         layout()
     end
 
-    local function do_exec()
+    local function do_exec_with_mode(mode)
         if not state.last_plan then
-            state.status = 'No stored plan. Press PLAN first.'
+            state.status = 'No plan. Press PLAN first, then SWAP or FILL.'
+            util.warn('You must press PLAN before using SWAP or FILL.')
             layout()
             return
         end
-        state.status = 'Executing...'
+
+        local rel = selected_file_rel()
+        if not rel then
+            state.status = 'Select a lua file first.'
+            layout()
+            return
+        end
+        clear_log()
+
+        local plan, e = planner.plan_for_file(rel, mode)
+        if not plan then
+            clear_log()
+            state.status = tostring(e)
+            layout()
+            return
+        end
+
+        state.last_plan = nil  -- consumed; must PLAN again before next SWAP/FILL
+        state.status = ('Executing %d moves [%s]...'):format(plan.moves and #plan.moves or 0, mode)
+        planner.print_plan(plan)
         layout()
-        execmod.exec_plan(state.last_plan)
+        execmod.exec_plan(plan)
+    end
+
+    local function do_exec_swap()
+        do_exec_with_mode('swap')
+    end
+
+    local function do_exec_fill()
+        do_exec_with_mode('fill')
     end
 
     -- ==========================================================================
@@ -841,9 +877,10 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         ensure_file_scroll_valid = ensure_file_scroll_valid,
         ensure_log_scroll_valid  = ensure_log_scroll_valid,
         ensure_selection_visible = ensure_selection_visible,
-        do_scan  = do_scan,
-        do_plan  = do_plan,
-        do_exec  = do_exec,
+        do_scan      = do_scan,
+        do_plan      = do_plan,
+        do_exec_swap = do_exec_swap,
+        do_exec_fill = do_exec_fill,
         SB_HIT_PAD_X = SB_HIT_PAD_X,
         SB_HIT_PAD_Y = SB_HIT_PAD_Y,
     })
