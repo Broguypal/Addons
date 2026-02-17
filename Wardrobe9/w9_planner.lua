@@ -219,7 +219,7 @@ return function(res, util, config, slots, bags, scanmod)
     function M.plan_for_file(jobfile)
         local scan, se = scanmod.load_scan_cache()
         if not scan then
-            return nil, ('No scan cache. In the Mog House UI, press SCAN.\n(%s)'):format(tostring(se))
+            return nil, 'No scan cache. In the Mog House UI, press SCAN.'
         end
 
         local needed, path_or_err = walk_text_collect(jobfile)

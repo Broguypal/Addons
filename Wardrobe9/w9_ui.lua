@@ -799,9 +799,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
         clear_log()
 
         local plan, e = planner.plan_for_file(rel)
-        if not plan then
-            state.status = tostring(e)
-            util.err(tostring(e))
+		if not plan then
+            push_log('err', tostring(e))
             layout()
             return
         end

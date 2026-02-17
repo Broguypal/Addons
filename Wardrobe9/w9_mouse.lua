@@ -324,20 +324,6 @@ return function(ctx)
             layout()
             return
         end
-
-        -- type 3: wheel
-        if type == 3 and delta and delta ~= 0 then
-            local flx, fly, flw, flh = Rect.file_list()
-            local lgx, lgy, lgw, lgh = Rect.log()
-
-            if Rect.point_in(x, y, flx, fly, flw, flh) then
-                return scroll_file_list(delta)
-            elseif Rect.point_in(x, y, lgx, lgy, lgw, lgh) then
-                return scroll_log(delta)
-            else
-                return scroll_file_list(delta)
-            end
-        end
     end
 
     return M
