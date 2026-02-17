@@ -15,7 +15,7 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
-return function(res, util, scanmod, planner, execmod, mousemod)
+return function(res, util, config, scanmod, planner, execmod, mousemod)
     local ui = {}
 
     local texts = require('texts')
@@ -115,8 +115,8 @@ return function(res, util, scanmod, planner, execmod, mousemod)
     -- ==========================================================================
 
     local UI = {
-        x = 420,
-        y = 220,
+        x = (config and config.UI_START_X) or 420,
+        y = (config and config.UI_START_Y) or 220,
         visible = false,
     }
 

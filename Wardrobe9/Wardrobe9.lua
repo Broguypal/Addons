@@ -53,4 +53,4 @@ local scan     = load_local('w9_scan.lua')(res, extdata, util, slots, ADDON_PATH
 local planner  = load_local('w9_planner.lua')(res, util, config, slots, bags, scan)
 local execmod  = load_local('w9_executor.lua')(res, extdata, util)
 local mousemod = load_local('w9_mouse.lua')
-local ui       = load_local('w9_ui.lua')(res, util, scan, planner, execmod, mousemod)
+local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod)

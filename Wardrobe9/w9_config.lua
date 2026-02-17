@@ -26,6 +26,15 @@ return {
     LOG_TO_CHAT = false,
 
     ---------------------------------------------------------------------------
+    -- USER INTERFACE POSITION
+		-- Where the Wardrobe9 panel appears when it first opens.
+		-- You can still drag it around once it's visible.
+    ---------------------------------------------------------------------------
+
+    UI_START_X = 420,
+    UI_START_Y = 220,
+
+    ---------------------------------------------------------------------------
     -- DESTINATION WARDROBES (true = eligible destination)
     --
     -- Note: If a wardrobe is not currently active/available, Wardrobe9 ignores
