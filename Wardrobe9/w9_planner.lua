@@ -386,6 +386,7 @@ return function(res, util, config, slots, bags, scanmod)
             required_name_only = {},
             import_only = {},
             required_name_count = {},
+            aug_mismatch_found = {},   -- [item_name] = {sorted list of aug strings actually present}
             mode = mode,
         }
 
@@ -529,8 +530,9 @@ return function(res, util, config, slots, bags, scanmod)
                     end
                 end
                 table.sort(havet)
-                local have_str = (#havet > 0) and table.concat(havet, ' | ') or '(unknown augments)'
-                plan.notes[#plan.notes+1] = ('Augment mismatch: wardrobes contain "%s" but not the required aug (%s). Found: %s'):format(m.name, m.aug, have_str)
+                if not plan.aug_mismatch_found[m.name] then
+                    plan.aug_mismatch_found[m.name] = havet
+                end
             else
                 local dest_id = pick_any_dest_with_space()
                 if not dest_id then
@@ -741,38 +743,62 @@ return function(res, util, config, slots, bags, scanmod)
         return plan, nil
     end
 
-    function M.print_plan(plan)
-        util.msg(('File: %s  [mode: %s]'):format(plan.path or plan.file, plan.mode or 'swap'))
+    -- Prints the shared header section (stats, mismatches, missing items, notes).
+    function M.print_plan_header(plan)
+        util.msg(('File: %s'):format(plan.path or plan.file))
         local miss_n = plan.missing and #plan.missing or 0
         local mm_n   = plan.mismatch and #plan.mismatch or 0
         util.msg(('Required (text-scan): %d | Present in wardrobes: %d | Located in excluded bags: %d | Missing: %d | Aug-mismatch: %d')
             :format(plan.total_needed or 0, plan.present or 0, plan.excl_present or 0, miss_n, mm_n))
 
-        if plan.mismatch and #plan.mismatch > 0 then
-            util.warn('Augment mismatches (name exists in wardrobes, required aug not present):')
-            for i,m in ipairs(plan.mismatch) do
-                if i > 30 then util.warn(('...and %d more'):format(#plan.mismatch-30)); break end
-                util.warn(('  - "%s" (Required aug: %s)'):format(m.name, m.aug))
-            end
-        end
-
         if plan.missing and #plan.missing > 0 then
             util.warn('Missing items (not currently in enabled wardrobes):')
             for i,m in ipairs(plan.missing) do
                 if i > 30 then util.warn(('...and %d more'):format(#plan.missing-30)); break end
-
-                local aug_suffix = ''
-                if m.aug and m.aug ~= '' then
-                    aug_suffix = (' (Aug: %s)'):format(m.aug)
-                end
-
+                local aug_suffix = (m.aug and m.aug ~= '') and (' (Aug: %s)'):format(m.aug) or ''
                 util.warn(('  - Missing "%s"%s'):format(m.name, aug_suffix))
             end
         end
 
+        if plan.mismatch and #plan.mismatch > 0 then
+            util.warn('Augment mismatches (item in wardrobes but required augments not present):')
+            local seen_keys = {}
+            local shown = 0
+            for _,m in ipairs(plan.mismatch) do
+                local key = m.name .. '|' .. (m.aug or '')
+                if not seen_keys[key] then
+                    seen_keys[key] = true
+                    shown = shown + 1
+                    if shown > 30 then
+                        util.warn('  ...and more (showing first 30)')
+                        break
+                    end
+                    local req_label = (m.aug and m.aug ~= '') and m.aug or '(none)'
+                    util.warn(('  "%s"'):format(m.name))
+                    util.warn(('      Required: %s'):format(req_label))
+                    local found = plan.aug_mismatch_found and plan.aug_mismatch_found[m.name]
+                    if found and #found > 0 then
+                        for _, fa in ipairs(found) do
+                            util.warn(('      Found:    %s'):format(fa))
+                        end
+                    else
+                        util.warn('      Found:    (unknown augments)')
+                    end
+                end
+            end
+        end
+
         if plan.notes and #plan.notes > 0 then
-            util.warn('Notes:')
-            for _,n in ipairs(plan.notes) do util.warn('  * '..n) end
+            local filtered = {}
+            for _,n in ipairs(plan.notes) do
+                if not n:match('^Augment mismatch: wardrobes contain') then
+                    filtered[#filtered+1] = n
+                end
+            end
+            if #filtered > 0 then
+                util.warn('Notes:')
+                for _,n in ipairs(filtered) do util.warn('  * '..n) end
+            end
         end
 
         do
@@ -782,15 +808,18 @@ return function(res, util, config, slots, bags, scanmod)
                 util.warn(('Augment warnings (%d): some items matched/imported by name only; augments may not match exactly.'):format(n))
             end
         end
+    end
 
-        if not plan.moves or #plan.moves == 0 then
-            util.msg('Planned moves: 0')
+    function M.print_plan_moves(plan, label)
+        label = label or (plan.mode and plan.mode:upper()) or 'PLAN'
+        local n = plan.moves and #plan.moves or 0
+        if n == 0 then
+            util.msg(('[%s] Planned moves: 0'):format(label))
             return
         end
-
-        util.msg(('Planned moves: %d'):format(#plan.moves))
+        util.msg(('[%s] Planned moves: %d'):format(label, n))
         for i,mv in ipairs(plan.moves) do
-            if i > 60 then util.warn(('...and %d more moves'):format(#plan.moves - 60)); break end
+            if i > 60 then util.warn(('...and %d more moves'):format(n - 60)); break end
             if mv.type == 'evict' then
                 util.warn(('[%02d] EVICT  [%s] %s:slot%d -> %s   (%s)'):format(i, mv.group, mv.from_bag_name, mv.from_slot, mv.to_bag_name, mv.item_name))
             else
@@ -798,6 +827,12 @@ return function(res, util, config, slots, bags, scanmod)
                 util.warn(('[%02d] IMPORT [%s] %s%s   (%s:slot%d -> %s)'):format(i, mv.group, mv.item_name, tag, mv.from_bag_name, mv.from_slot, mv.to_bag_name))
             end
         end
+    end
+
+    -- Full single-plan output (used by exec path where only one mode is run).
+    function M.print_plan(plan)
+        M.print_plan_header(plan)
+        M.print_plan_moves(plan, plan.mode and plan.mode:upper() or 'PLAN')
     end
 
     return M

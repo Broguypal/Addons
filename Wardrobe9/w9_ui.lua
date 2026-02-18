@@ -795,8 +795,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         layout()
     end
 
-    local function do_plan(mode)
-        mode = mode or 'swap'
+    local function do_plan()
         local rel = selected_file_rel()
         if not rel then
             state.status = 'Select a lua file first.'
@@ -805,20 +804,32 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         end
         clear_log()
 
-        local plan, e = planner.plan_for_file(rel, mode)
-		if not plan then
-            clear_log()
-            state.status = tostring(e)
+        local swap_plan, e1 = planner.plan_for_file(rel, 'swap')
+        if not swap_plan then
+            state.status = tostring(e1)
             layout()
             return
         end
 
-        state.last_plan = plan
-        state.status = ('Planned %d moves for %s [%s].'):format(plan.moves and #plan.moves or 0, rel, mode)
-        planner.print_plan(plan)
-        util.msg('Review the plan above, then press [ SWAP ] or [ FILL ] to execute.')
-        util.msg('SWAP: evicts same-group items (ring-for-ring, etc.) to make room, then imports.')
-        util.msg('FILL: imports into free wardrobe slots first, only evicts if no space remains.')
+        local fill_plan, e2 = planner.plan_for_file(rel, 'fill')
+        if not fill_plan then
+            state.status = tostring(e2)
+            layout()
+            return
+        end
+
+        state.last_plan = swap_plan  -- sentinel checked by do_exec_with_mode
+        state.status = ('Plans ready: SWAP=%d moves  FILL=%d moves  [%s]'):format(
+            swap_plan.moves and #swap_plan.moves or 0,
+            fill_plan.moves and #fill_plan.moves or 0,
+            rel)
+
+        -- Header info (missing, mismatches, notes) comes from swap_plan — identical for both.
+        planner.print_plan_header(swap_plan)
+        -- Move lists shown back-to-back with no separator clutter.
+        planner.print_plan_moves(swap_plan, 'SWAP')
+        planner.print_plan_moves(fill_plan, 'FILL')
+        util.msg('Press [ SWAP ] or [ FILL ] to execute.')
         layout()
     end
 
