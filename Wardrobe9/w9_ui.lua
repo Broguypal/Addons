@@ -623,7 +623,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
 
-        -- Panel background (image-based, font-independent sizing)
+        -- Panel background 
         img_panel:pos(UI.x, UI.y)
         img_panel:size(PX.PANEL_W, math.floor(panel_h()))
         img_panel:show()
