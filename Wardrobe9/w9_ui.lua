@@ -18,7 +18,8 @@ THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 return function(res, util, config, scanmod, planner, execmod, mousemod)
     local ui = {}
 
-    local texts = require('texts')
+    local texts  = require('texts')
+    local images = require('images')
 
     local PX = {
         -- Panel outer width (fixed)
@@ -183,7 +184,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     -- Text objects
     -- ==========================================================================
 
-    local t_panel   = texts.new('')
+    local img_panel = images.new()
+    img_panel:color(20, 20, 20)
+    img_panel:alpha(220)
+    img_panel:hide()
     local t_title   = texts.new('')
     local t_status  = texts.new('')
 
@@ -310,7 +314,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
 
     local function refresh_file_list()
         state.files          = {}
-        state.selected_set   = {}
+        state.selected_set   = {}   -- clear all checkboxes on refresh
         state.selected_index = nil
         state.file_scroll    = 0
 
@@ -350,6 +354,15 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         -- Sort by label so the merged plan header is deterministic.
         table.sort(out, function(a, b) return (a.label or '') < (b.label or '') end)
         return out
+    end
+
+    -- Helper: count checked files.
+    local function selected_count()
+        local n = 0
+        for _, v in pairs(state.selected_set) do
+            if v then n = n + 1 end
+        end
+        return n
     end
 
     -- ==========================================================================
@@ -530,7 +543,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
 
     local function set_all_visible(v)
         local objs = {
-            t_panel, t_title, t_status,
+            t_title, t_status,
             t_btn_scan, t_btn_plan, t_btn_swap, t_btn_fill,
             t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
             t_log_title,
@@ -539,6 +552,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         for _, t in ipairs(objs) do if t then t:visible(v) end end
         for _, t in pairs(t_file_rows) do if t then t:visible(v) end end
         for _, t in pairs(t_log_rows)  do if t then t:visible(v) end end
+        if v then img_panel:show() else img_panel:hide() end
     end
 
     -- ==========================================================================
@@ -546,7 +560,6 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     -- ==========================================================================
 
     local function reposition_all()
-        t_panel:pos(UI.x, UI.y)
         t_title:pos(UI.x + PX.PAD, UI.y + 4)
         t_status:pos(UI.x + PX.PAD, UI.y + PX.STATUS_Y)
 
@@ -595,7 +608,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
 
     local function layout()
         local all_fixed = {
-            t_panel, t_title, t_status,
+            t_title, t_status,
             t_btn_scan, t_btn_plan, t_btn_swap, t_btn_fill,
             t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
             t_log_title,
@@ -610,10 +623,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
 
-        -- Panel background
-        local pcols = chars_in(PX.PANEL_W)
-        local prows = math.max(1, math.floor(panel_h() / row_h()))
-        Render.set_block(t_panel, UI.x, UI.y, prows, pcols, C.panel_bg)
+        -- Panel background (image-based, font-independent sizing)
+        img_panel:pos(UI.x, UI.y)
+        img_panel:size(PX.PANEL_W, math.floor(panel_h()))
+        img_panel:show()
 
         -- Title
         t_title:text('Wardrobe9 — Mog House')
@@ -763,6 +776,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         if UI.visible then layout() end
     end
 
+    ui.clear_log = clear_log
+
     local function push_log(level, s)
         s = tostring(s or '')
         if s == '' then return end
@@ -783,6 +798,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         ensure_log_scroll_valid()
         if UI.visible then layout() end
     end
+
+    ui.push_log = push_log
 
     -- ==========================================================================
     -- Actions
@@ -833,12 +850,12 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         end
 
         state.last_plan = swap_plan  -- sentinel checked by do_exec_with_mode
-        state.status = ('Plans ready: SWAP=%d moves  FILL=%d moves  [%s] '):format(
+        state.status = ('Plans ready: SWAP=%d moves  FILL=%d moves  [%s]'):format(
             swap_plan.moves and #swap_plan.moves or 0,
             fill_plan.moves and #fill_plan.moves or 0,
             label)
 
-        -- Header info (missing, mismatches, notes) comes from swap_plan
+        -- Header info (missing, mismatches, notes) comes from swap_plan — identical for both.
         planner.print_plan_header(swap_plan)
         -- Move lists shown back-to-back.
         planner.print_plan_moves(swap_plan, 'SWAP')
@@ -875,7 +892,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         end
 
         local label = (n == 1) and files[1].label or (('%d files'):format(n))
-        state.last_plan = nil  -- consumed; must PLAN again before next SWAP/FILL
+        state.last_plan = nil
         state.status = ('Executing %d moves [%s] [%s]...'):format(
             plan.moves and #plan.moves or 0, mode, label)
         planner.print_plan(plan)
@@ -929,7 +946,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         state.log_sb_dragging  = false
         state.hover            = nil
         clear_log()
-        push_log('msg', 'Welcome to Wardrobe9! Once your inventory has loaded press SCAN to begin.')
+        push_log('msg', 'Welcome to Wardrobe9! Press SCAN to begin.')
         refresh_file_list()
         layout()
     end
