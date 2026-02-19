@@ -143,6 +143,7 @@ return {
     -- Add custom gearswap variables to this list so gear isn't missed during plan
 	-- This looks for assignments like: VAR_NAME = "Item Name"
 	-- format: head = {"VAR_NAME","WAR_HEAD","AF_HEAD",...},
+			-- Note: weapon includes MAIN / SUB / RANGED gear
     ---------------------------------------------------------------------------
 
 	CUSTOM_GEAR_VARIABLES = {
