@@ -35,6 +35,8 @@ return function(ctx)
     local do_plan      = ctx.do_plan
     local do_exec_swap = ctx.do_exec_swap
     local do_exec_fill = ctx.do_exec_fill
+    local clear_log    = ctx.clear_log
+    local push_log     = ctx.push_log
     local SB_HIT_PAD_X = ctx.SB_HIT_PAD_X
     local SB_HIT_PAD_Y = ctx.SB_HIT_PAD_Y
 
@@ -129,14 +131,42 @@ return function(ctx)
         if vis < 1 or vis > PX.FILE_ROWS then return false end
 
         local abs = state.file_scroll + vis
-        if abs >= 1 and abs <= #state.files then
-            state.selected_index = abs
-            ensure_selection_visible()
-            state.status = ('Selected: %s'):format(state.files[abs].label)
-            layout()
-            return true
+        if abs < 1 or abs > #state.files then return false end
+
+        if state.selected_set[abs] then
+            state.selected_set[abs] = nil
+        else
+            state.selected_set[abs] = true
         end
-        return false
+
+        if state.last_plan then
+            state.last_plan = nil
+            clear_log()
+            push_log('warn', 'File selection has changed. Please press PLAN again.')
+        end
+
+        state.selected_index = abs
+        ensure_selection_visible()
+
+        local n = 0
+        for _, v in pairs(state.selected_set) do if v then n = n + 1 end end
+        if n == 0 then
+            state.status = 'No files selected. Click a row to check it.'
+        elseif n == 1 then
+            local label = state.files[abs] and state.files[abs].label or '?'
+            for idx, v in pairs(state.selected_set) do
+                if v and state.files[idx] then
+                    label = state.files[idx].label
+                    break
+                end
+            end
+            state.status = ('Selected: %s  [Press PLAN]'):format(label)
+        else
+            state.status = ('%d files selected. Press PLAN to continue.'):format(n)
+        end
+
+        layout()
+        return true
     end
 
     -- ======================================================

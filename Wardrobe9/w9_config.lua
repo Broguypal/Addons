@@ -137,4 +137,27 @@ return {
         ["sack"]    = false,
         ["case"]    = false,
     },
+
+    ---------------------------------------------------------------------------
+    -- CUSTOM GEARSWAP VARIABLES (ADVANCED USERS)
+    -- Add custom gearswap variables to this list so gear isn't missed during plan
+	-- This looks for assignments like: VAR_NAME = "Item Name"
+	-- format: head = {"VAR_NAME","WAR_HEAD","AF_HEAD",...},
+    ---------------------------------------------------------------------------
+
+	CUSTOM_GEAR_VARIABLES = {
+		weapon	= {},
+		head  	= {},
+		body  	= {},
+		hands 	= {},
+		legs  	= {},
+		feet  	= {},
+		neck  	= {},
+		waist 	= {},
+		back  	= {},
+		ear   	= {},
+		ring  	= {},
+		ammo  	= {},
+	},
+	
 }

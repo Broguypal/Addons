@@ -154,6 +154,9 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
 
     local state = {
         files          = {},
+        -- Multi-select: {[abs_index] = true} for every checked file.
+        selected_set   = {},
+        -- Tracks the last row clicked, used only for scroll-into-view.
         selected_index = nil,
         last_plan      = nil,
         status         = 'Ready.',
@@ -306,9 +309,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     end
 
     local function refresh_file_list()
-        state.files = {}
+        state.files          = {}
+        state.selected_set   = {}
         state.selected_index = nil
-        state.file_scroll = 0
+        state.file_scroll    = 0
 
         local root, char, pname = util.get_gearswap_data_paths()
 
@@ -331,13 +335,21 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         end
 
         ensure_file_scroll_valid()
-        state.status = ('Found %d GearSwap lua(s).'):format(#state.files)
+        state.status = ('Found %d GearSwap lua(s). Click rows to check/uncheck.'):format(#state.files)
     end
 
-    local function selected_file_rel()
-        if not state.selected_index then return nil end
-        local rec = state.files[state.selected_index]
-        return rec and rec.rel or nil
+    -- Returns a sorted list of checked file records: { rel, label, ... }
+    -- This is what PLAN / SWAP / FILL operate on.
+    local function selected_files_list()
+        local out = {}
+        for abs, checked in pairs(state.selected_set) do
+            if checked and state.files[abs] then
+                out[#out+1] = state.files[abs]
+            end
+        end
+        -- Sort by label so the merged plan header is deterministic.
+        table.sort(out, function(a, b) return (a.label or '') < (b.label or '') end)
+        return out
     end
 
     -- ==========================================================================
@@ -628,7 +640,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             rbtn(t_btn_fill, '[ FILL ]', 'fill')
         end
 
-        -- File rows
+        -- File rows — each row shows a [x]/[ ] checkbox prefix.
         local rc = chars_in(content_w())
         Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
         ensure_file_scroll_valid()
@@ -637,10 +649,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             local t   = t_file_rows[vis]
             local rec = state.files[abs]
             if rec then
-                local sel    = (state.selected_index == abs)
-                local prefix = sel and '> ' or '  '
+                local checked = state.selected_set[abs] == true
+                local prefix  = checked and '[x] ' or '[ ] '
                 t:text(pad_right(prefix .. rec.label, rc))
-                if sel then set_bg(t, C.sel_bg) else t:bg_alpha(0) end
+                if checked then set_bg(t, C.sel_bg) else t:bg_alpha(0) end
                 set_color(t, C.text)
             else
                 t:text(pad_right('', rc))
@@ -751,8 +763,6 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         if UI.visible then layout() end
     end
 
-    ui.clear_log = clear_log
-
     local function push_log(level, s)
         s = tostring(s or '')
         if s == '' then return end
@@ -774,8 +784,6 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         if UI.visible then layout() end
     end
 
-    ui.push_log = push_log
-
     -- ==========================================================================
     -- Actions
     -- ==========================================================================
@@ -789,44 +797,50 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
         clear_log()
-        util.msg('Scan complete. Please select a lua and press PLAN.')
-        state.status = 'Scan complete. Select a lua and press PLAN.'
+        util.msg('Scan complete. Check one or more luas and press PLAN.')
+        state.status = 'Scan complete. Check lua(s) and press PLAN.'
         refresh_file_list()
         layout()
     end
 
     local function do_plan()
-        local rel = selected_file_rel()
-        if not rel then
-            state.status = 'Select a lua file first.'
+        local files = selected_files_list()
+        local n = #files
+        if n == 0 then
+            state.status = 'Check at least one lua file first.'
+            util.warn('Check at least one lua file in the list before pressing PLAN.')
             layout()
             return
         end
         clear_log()
 
-        local swap_plan, e1 = planner.plan_for_file(rel, 'swap')
+        local label = (n == 1) and files[1].label or (('%d files'):format(n))
+
+        local swap_plan, e1 = planner.plan_for_files(files, 'swap')
         if not swap_plan then
             state.status = tostring(e1)
+            util.err(tostring(e1))
             layout()
             return
         end
 
-        local fill_plan, e2 = planner.plan_for_file(rel, 'fill')
+        local fill_plan, e2 = planner.plan_for_files(files, 'fill')
         if not fill_plan then
             state.status = tostring(e2)
+            util.err(tostring(e2))
             layout()
             return
         end
 
         state.last_plan = swap_plan  -- sentinel checked by do_exec_with_mode
-        state.status = ('Plans ready: SWAP=%d moves  FILL=%d moves  [%s]'):format(
+        state.status = ('Plans ready: SWAP=%d moves  FILL=%d moves  [%s] '):format(
             swap_plan.moves and #swap_plan.moves or 0,
             fill_plan.moves and #fill_plan.moves or 0,
-            rel)
+            label)
 
-        -- Header info (missing, mismatches, notes) comes from swap_plan — identical for both.
+        -- Header info (missing, mismatches, notes) comes from swap_plan
         planner.print_plan_header(swap_plan)
-        -- Move lists shown back-to-back with no separator clutter.
+        -- Move lists shown back-to-back.
         planner.print_plan_moves(swap_plan, 'SWAP')
         planner.print_plan_moves(fill_plan, 'FILL')
         util.msg('Press [ SWAP ] or [ FILL ] to execute.')
@@ -841,24 +855,29 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
 
-        local rel = selected_file_rel()
-        if not rel then
-            state.status = 'Select a lua file first.'
+        local files = selected_files_list()
+        local n = #files
+        if n == 0 then
+            state.status = 'No lua files checked. Check file(s) first.'
+            util.warn('Check at least one lua file before executing.')
             layout()
             return
         end
         clear_log()
 
-        local plan, e = planner.plan_for_file(rel, mode)
+        local plan, e = planner.plan_for_files(files, mode)
         if not plan then
             clear_log()
             state.status = tostring(e)
+            util.err(tostring(e))
             layout()
             return
         end
 
+        local label = (n == 1) and files[1].label or (('%d files'):format(n))
         state.last_plan = nil  -- consumed; must PLAN again before next SWAP/FILL
-        state.status = ('Executing %d moves [%s]...'):format(plan.moves and #plan.moves or 0, mode)
+        state.status = ('Executing %d moves [%s] [%s]...'):format(
+            plan.moves and #plan.moves or 0, mode, label)
         planner.print_plan(plan)
         layout()
         execmod.exec_plan(plan)
@@ -893,6 +912,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         do_plan      = do_plan,
         do_exec_swap = do_exec_swap,
         do_exec_fill = do_exec_fill,
+        clear_log    = clear_log,
+        push_log     = push_log,
         SB_HIT_PAD_X = SB_HIT_PAD_X,
         SB_HIT_PAD_Y = SB_HIT_PAD_Y,
     })
@@ -908,6 +929,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         state.log_sb_dragging  = false
         state.hover            = nil
         clear_log()
+        push_log('msg', 'Welcome to Wardrobe9! Once your inventory has loaded press SCAN to begin.')
         refresh_file_list()
         layout()
     end

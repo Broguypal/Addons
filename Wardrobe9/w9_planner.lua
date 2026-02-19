@@ -180,6 +180,14 @@ return function(res, util, config, slots, bags, scanmod)
                 needed[key] = needed[key] or { name = name, aug = aug, group = group }
             end
         end
+		
+		local function add_needed_with_group(group, val)
+            if not group or util.is_protected_group(group) then return end
+            local key, name, aug = util.make_item_key(val)
+            if key and name then
+                needed[key] = needed[key] or { name = name, aug = aug, group = group }
+            end
+        end
 
         -- 1) slot = { ... } form (captures augments if present)
         -- This will also match non-gear tables, but this is filtered by SLOT_GROUP keys via util.group_for_slot(slot).
@@ -207,45 +215,65 @@ return function(res, util, config, slots, bags, scanmod)
             end
         end
 
+		-- 3) Resolve CUSTOM_GEAR_VARIABLES from config.
+        -- Builds a lookup of variable name -> slot group, then scans
+        if type(config.CUSTOM_GEAR_VARIABLES) == 'table' then
+            local var_to_group = {}
+            for slot, vars in pairs(config.CUSTOM_GEAR_VARIABLES) do
+                local group = util.group_for_slot(slot)
+                if group and type(vars) == 'table' then
+                    for _, varname in ipairs(vars) do
+                        if type(varname) == 'string' and varname ~= '' then
+                            var_to_group[varname] = group
+                        end
+                    end
+                end
+            end
+
+            for varname, group in pairs(var_to_group) do
+                local pattern = varname .. '%s*=%s*[\'"](.-)[\'""]'
+                local item = src:match(pattern)
+                if item and item ~= '' then
+                    add_needed_with_group(group, { name = item })
+                end
+            end
+        end
+
         return needed, path
     end
 
 
-
     -- ======================================================
-    -- Planning
+    -- Core plan builder
+    --
+    -- Shared by both single-file and multi-file code paths.
+    -- needed     : merged {[key] = {name, aug, group}} table
+    -- path_label : display string stored in plan.file / plan.path
+    -- scan       : pre-loaded scan cache table
+    -- mode       : 'swap' | 'fill'
     -- ======================================================
 
-    function M.plan_for_file(jobfile, mode)
+    local function run_plan(needed, path_label, scan, mode)
         mode = (mode == 'fill') and 'fill' or 'swap'
-        local scan, se = scanmod.load_scan_cache()
-        if not scan then
-            return nil, 'No scan cache. In the Mog House UI, press SCAN.'
-        end
-
-        local needed, path_or_err = walk_text_collect(jobfile)
-        if not needed then
-            return nil, tostring(path_or_err)
-        end
-		local path = path_or_err
 
         local dest_bags, disabled_wardrobes = bags.build_dest_bags()
-		if #dest_bags == 0 then
-			return nil, 'No destination wardrobes enabled. In w9_config.lua, set DEST_BAGS for at least one of: Wardrobe, Wardrobe 2..Wardrobe 8 = true.'
-		end
+        if #dest_bags == 0 then
+            return nil, 'No destination wardrobes enabled. In w9_config.lua, set DEST_BAGS for at least one of: Wardrobe, Wardrobe 2..Wardrobe 8 = true.'
+        end
+
         local idx = index_scan_items(scan)
         local warn_aug_pre = {}
-		
-		local function bagset_to_string(set)
-			if type(set) ~= 'table' then return nil end
-			local t = {}
-			for k,v in pairs(set) do
-				if v then t[#t+1] = k end
-			end
-			table.sort(t)
-			if #t == 0 then return nil end
-			return table.concat(t, ', ')
-		end
+
+        local function bagset_to_string(set)
+            if type(set) ~= 'table' then return nil end
+            local t = {}
+            for k,v in pairs(set) do
+                if v then t[#t+1] = k end
+            end
+            table.sort(t)
+            if #t == 0 then return nil end
+            return table.concat(t, ', ')
+        end
 
         local missing, present, excl_present, total_needed = {}, 0, 0, 0
         local mismatch = {}
@@ -369,8 +397,8 @@ return function(res, util, config, slots, bags, scanmod)
         end)
 
         local plan = {
-            file = jobfile,
-            path = path,
+            file = path_label,
+            path = path_label,
             total_needed = total_needed,
             present = present,
             excl_present = excl_present,
@@ -743,7 +771,63 @@ return function(res, util, config, slots, bags, scanmod)
         return plan, nil
     end
 
-    -- Prints the shared header section (stats, mismatches, missing items, notes).
+
+    -- ======================================================
+    -- Planning (public API)
+    -- ======================================================
+
+    function M.plan_for_file(jobfile, mode)
+        mode = (mode == 'fill') and 'fill' or 'swap'
+        local scan, _ = scanmod.load_scan_cache()
+        if not scan then
+            return nil, 'No scan cache. In the Mog House UI, press SCAN.'
+        end
+
+        local needed, path_or_err = walk_text_collect(jobfile)
+        if not needed then
+            return nil, tostring(path_or_err)
+        end
+        local path = path_or_err
+
+        return run_plan(needed, path, scan, mode)
+    end
+
+    -- Multi-file plan.
+    function M.plan_for_files(jobfiles, mode)
+        mode = (mode == 'fill') and 'fill' or 'swap'
+
+        if type(jobfiles) ~= 'table' or #jobfiles == 0 then
+            return nil, 'No files selected.'
+        end
+
+        if #jobfiles == 1 then
+            return M.plan_for_file(jobfiles[1].rel, mode)
+        end
+
+        local scan, _ = scanmod.load_scan_cache()
+        if not scan then
+            return nil, 'No scan cache. In the Mog House UI, press SCAN.'
+        end
+
+        local merged_needed = {}
+        local labels = {}
+        for _, f in ipairs(jobfiles) do
+            local needed, err = walk_text_collect(f.rel)
+            if not needed then
+                return nil, ('Error reading %s: %s'):format(tostring(f.rel), tostring(err))
+            end
+            labels[#labels+1] = f.label or f.rel
+            for key, info in pairs(needed) do
+                if not merged_needed[key] then
+                    merged_needed[key] = info
+                end
+            end
+        end
+
+        local path_label = table.concat(labels, ', ')
+        return run_plan(merged_needed, path_label, scan, mode)
+    end
+
     function M.print_plan_header(plan)
         util.msg(('File: %s'):format(plan.path or plan.file))
         local miss_n = plan.missing and #plan.missing or 0

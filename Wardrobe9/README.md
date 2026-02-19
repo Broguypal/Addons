@@ -51,7 +51,7 @@ items one by one.
 
 ### 🔎 Lua File Analysis
 
--   Scans your GearSwap job file.
+-   Scans your selected GearSwap job files.
 -   Extracts all gear references from your sets.
 -   Builds a complete list of required items.
 
@@ -96,7 +96,7 @@ No more manual inventory juggling.
 Wardrobe9 follows a safe workflow inside the UI:
 
 1.  **Scan** -- Build a list of all items you own and identify .lua files in your Gearswap folder.
-2.  **Plan** -- Compare your gear against the selected Lua and preview the proposed moves.
+2.  **Plan** -- Compare your gear against the selected Luas and preview the proposed moves.
 3.  **Swap** or **Fill** -- Execute the plan using your preferred mode.
 
 ------------------------------------------------------------------------
@@ -112,6 +112,7 @@ Common configurable options include:
 -   Locking specific items from movement.
 -   Preventing certain equipment categories (weapons/Head/etc.) from being moved.
 -	Setting source bags to be ignored.
+-	Defining custom gear variables (`ex. "WAR_AF_HEAD"`) to ensure gear isn't missed.
 
 
 ### Defaults
@@ -131,7 +132,7 @@ allows you to:
 
 -   Quickly generate a full structured list of all items in your
     inventory via the scan cache.
--   Easily validate any GearSwap file to confirm you actually own the
+-   Easily validate your GearSwap files to confirm you actually own the
     referenced gear.
 
 These are natural side benefits of the scan and planning system.
@@ -151,7 +152,7 @@ Managing multiple jobs with full wardrobes is tedious and error-prone.
 
 Wardrobe9 removes that friction by:
 
--   Connecting your Lua directly to your wardrobes.
+-   Connecting your Luas directly to your wardrobes.
 -   Showing you exactly what's missing.
 -   Fixing storage automatically.
 
