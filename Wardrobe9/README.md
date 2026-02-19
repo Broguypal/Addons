@@ -18,10 +18,15 @@ Wardrobe9 is designed to be used **through its User Interface inside your Mog Ho
 -   The **full interface is only available while you are inside your Mog House.**
 -   This is where scanning, planning, and execution occur.
 
-**Note**: In windowed mode, button positions may appear slightly offset
+**Note 1**: In windowed mode, button positions may appear slightly offset
 from their click targets. This is a known Windower 4 limitation where
 text rendering and mouse coordinates can diverge. Borderless Windowed 
 or Fullscreen mode is recommended for the best experience.
+
+**Note 2**: If your cursor appears behind the addon interface, this is typically 
+caused by the Hardware Mouse setting being disabled in Windower 4. To resolve this, 
+open  the Windower launcher, select Edit (pencil icon), navigate to the Game tab, and 
+enable the Hardware Mouse option.
 
 ------------------------------------------------------------------------
 
