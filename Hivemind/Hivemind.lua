@@ -46,7 +46,7 @@ local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
 local POLL_RATE   = 0.1          -- seconds between polls
-local MAX_AGE     = 300          -- purgw messages older than 5 min
+local MAX_AGE     = 300          -- purge messages older than 5 min
 local MY_NAME     = nil          -- filled on load
 
 ----------------------------------------------------------------------
