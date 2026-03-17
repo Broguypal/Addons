@@ -40,8 +40,6 @@ local packets = require('packets')
 -- CONFIG
 ----------------------------------------------------------------------
 -- Shared directory: all instances read/write here.
--- Using a fixed path so every character resolves the same folder.
--- Adjust this if your Windower lives somewhere else.
 local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
