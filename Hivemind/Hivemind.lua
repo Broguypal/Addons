@@ -1,38 +1,7 @@
---[[
-BSD 3-Clause License
-
-Copyright (c) 2026 Broguypal
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-3. Neither the name of Broguypal nor the names of its contributors may be used
-   to endorse or promote products derived from this software without specific
-   prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-]]
-
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal'
 _addon.version = '1.0'
+_addon.commands = {'hivemind', 'hm'}
 
 local packets = require('packets')
 
@@ -48,6 +17,10 @@ local LOCK_SUFFIX = '.lock'
 local POLL_RATE   = 0.1          -- seconds between polls
 local MAX_AGE     = 300          -- prune messages older than 5 min
 local MY_NAME     = nil          -- filled on load
+
+-- Reply tracking — updated by both local tells and relayed tells
+local last_tell_char   = nil    -- which of YOUR characters got the tell
+local last_tell_sender = nil    -- the player who sent it
 
 ----------------------------------------------------------------------
 -- HELPERS
@@ -147,7 +120,7 @@ local function read_new_messages()
     return results
 end
 
--- Periodically prune the log
+-- Periodically purge the log so it doesn't grow forever
 local last_prune = os.time()
 local PRUNE_INTERVAL = 60
 
@@ -177,11 +150,11 @@ local function maybe_prune()
             f:close()
         end
 
-        -- Reset read position
+        -- Reset read position since we rewrote the file
         last_read_pos = f and 0 or last_read_pos
     end)
 
-    -- After pruning, reset read position to end of new file
+    -- After purgin, reset read position to end of new file
     local f = io.open(LOG_FILE, 'r')
     if f then
         f:seek('end')
@@ -210,13 +183,17 @@ windower.register_event('incoming chunk', function(id, data)
 
     if id == 0x017 then
         local parsed = packets.parse('incoming', data)
-        -- Mode 3 = /tell, Mode 4 = /tell (GM), etc.
+        -- Mode 3 = /tell 
         if parsed and parsed['Mode'] == 3 then
             local from_player = parsed['Sender Name'] or parsed['sender_name'] or 'Unknown'
             local message     = parsed['Message']     or parsed['message']     or ''
 
             -- Clean up any auto-translate brackets or trailing bytes
             message = message:gsub('%z', '')
+
+            -- Track for reply
+            last_tell_char   = MY_NAME
+            last_tell_sender = from_player
 
             write_message(from_player, message)
         end
@@ -239,6 +216,9 @@ windower.register_event('prerender', function()
     if msgs then
         for _, m in ipairs(msgs) do
             show_relayed_tell(m.sender, m.from_player, m.message)
+            -- Track for reply — most recent tell wins
+            last_tell_char   = m.sender
+            last_tell_sender = m.from_player
         end
     end
 
@@ -251,13 +231,19 @@ end)
 windower.register_event('load', function()
     ensure_dir(SHARED_DIR)
 
-    -- Seek to end of existing log so we don't replay old messages
+    -- Bind Ctrl+T to reply
+    windower.send_command('bind ^t hivemind reply')
+
     local f = io.open(LOG_FILE, 'r')
     if f then
         f:seek('end')
         last_read_pos = f:seek()
         f:close()
     end
+end)
+
+windower.register_event('unload', function()
+    windower.send_command('unbind ^t')
 end)
 
 windower.register_event('login', function(name)
@@ -271,3 +257,20 @@ if player then
     MY_NAME = player.name
     windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end
+
+----------------------------------------------------------------------
+-- REPLY COMMAND
+----------------------------------------------------------------------
+windower.register_event('addon command', function(cmd)
+    cmd = cmd and cmd:lower() or ''
+
+    if cmd == 'reply' then
+        if last_tell_char and last_tell_sender then
+            windower.send_command('input //send %s /tell %s ':format(
+                last_tell_char, last_tell_sender))
+        else
+            windower.add_to_chat(167, '[Hivemind] No recent tell to reply to.')
+        end
+    end
+end)
+
