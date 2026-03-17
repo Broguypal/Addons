@@ -54,7 +54,7 @@ local MY_NAME     = nil          -- filled on load
 ----------------------------------------------------------------------
 -- Make sure the shared directory exists
 local function ensure_dir(path)
-    os.execute('mkdir "' .. path:gsub('/', '\\') .. '" 2>nul')
+    windower.create_dir(path)
 end
 
 -- create a .lock file, yield if it exists
