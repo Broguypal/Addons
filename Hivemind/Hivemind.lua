@@ -232,6 +232,7 @@ windower.register_event('load', function()
     ensure_dir(SHARED_DIR)
 
     -- Bind Ctrl+T to reply
+	windower.send_command('unbind ^t')
     windower.send_command('bind ^t hivemind reply')
 
     local f = io.open(LOG_FILE, 'r')
