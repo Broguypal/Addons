@@ -1,7 +1,7 @@
 # Hivemind
 
 A Windower 4 addon that relays incoming /tells across all your multiboxed characters. 
-It also lets you quickly reply from any character to the last tell received when using the **send** addon.
+It also lets you quickly reply from any character to the last tell received when using the **Send** addon.
 
 ## What it does
 
