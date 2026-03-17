@@ -20,10 +20,6 @@ Press **Ctrl+C** from any character window. The chat box opens with the reply pr
 - If the tell was received on the current character: `/tell PlayerName `
 - If received on a different character: `//send CharName /tell PlayerName `
 
-Just type your message and hit enter. The reply always goes out from the character who received the tell.
-
-Ctrl+C is intercepted via Windower's keyboard event. If no tell has been received yet, the keypress is ignored.
-
 Cross-character replies require the **Send** addon.
 
 ## Install
