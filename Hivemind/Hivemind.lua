@@ -230,9 +230,9 @@ end)
 windower.register_event('load', function()
     ensure_dir(SHARED_DIR)
 
-    -- Unbind game default Ctrl+T first, then bind to reply
-    windower.send_command('unbind ^t')
-    windower.send_command('bind ^t input //hm r ')
+    -- Unbind game default Ctrl+Numpad0 first, then bind to reply
+    windower.send_command('unbind ^numpad0')
+    windower.send_command('bind ^numpad0 lua i Hivemind reply')
 
     -- Seek to end of existing log so we don't replay old messages
     local f = io.open(LOG_FILE, 'r')
@@ -265,16 +265,24 @@ end
 windower.register_event('addon command', function(cmd, ...)
     cmd = cmd and cmd:lower() or ''
 
-    if cmd == 'r' then
-        local msg = table.concat({...}, ' ')
+    if cmd == 'reply' then
         if not last_tell_char or not last_tell_sender then
             windower.add_to_chat(167, '[Hivemind] No recent tell to reply to.')
-        elseif #msg == 0 then
-            windower.add_to_chat(167, '[Hivemind] Usage: //hm r <message>')
-        else
-            windower.send_command('input //send %s /tell %s %s':format(
-                last_tell_char, last_tell_sender, msg))
+            return
         end
+
+        windower.send_command('setkey enter')
+
+        coroutine.schedule(function()
+            if last_tell_char == MY_NAME then
+                windower.send_command(
+                    ('setkey "/tell %s "'):format(last_tell_sender)
+                )
+            else
+                windower.send_command(
+                    ('setkey "//send %s /tell %s "'):format(last_tell_char, last_tell_sender)
+                )
+            end
+        end, 0.05)
     end
 end)
-
