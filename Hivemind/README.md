@@ -13,12 +13,6 @@ When any of your characters receives a /tell, every other character running Hive
 
 So you always know which character actually received the tell.
 
-## Install
-
-1. Copy the `Hivemind` folder into `Windower4/addons/`
-2. Load on each character: `//lua load Hivemind`
-3. (Optional) Add `lua load Hivemind` to your init file to auto-load
-
 ## Replying
 
 Press **Ctrl+C** from any character window. The chat box opens with the reply pre-filled:
@@ -32,9 +26,11 @@ Ctrl+C is intercepted via Windower's keyboard event. If no tell has been receive
 
 Cross-character replies require the **Send** addon.
 
-## How it works
+## Install
 
-All instances share a log file at `addons/Hivemind/shared/messages.log`. When a tell arrives, the addon writes it to the log. Each instance polls the log for new entries and displays tells from other characters.
+1. Copy the `Hivemind` folder into `Windower4/addons/`
+2. Load on each character: `//lua load Hivemind`
+3. Add `lua load Hivemind` to your init file to auto-load
 
 ## Licence
 BSD 3-Clause License
