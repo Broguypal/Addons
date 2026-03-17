@@ -24,4 +24,5 @@ All instances share a log file at `addons/Hivemind/shared/messages.log`. When a 
 
 ## Licence
 BSD 3-Clause License
+
 Copyright (c) 2026 Broguypal
