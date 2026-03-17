@@ -44,13 +44,13 @@ local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
 local POLL_RATE   = 0.1          -- seconds between polls
-local MAX_AGE     = 300          -- prune messages older than 5 min
+local MAX_AGE     = 1800         -- prune messages older than 30 min
 local MY_NAME     = nil          -- filled on load
+local MAX_REPLY   = 5            -- max unique senders to cycle through
 
--- Reply tracking — updated by both local tells and relayed tells
-local last_tell_char   = nil    -- which of YOUR characters got the tell
-local last_tell_sender = nil    -- the player who sent it
-local ctrl_held        = false  -- track ctrl key state (DIK 29)
+local reply_list   = {}          -- ordered most-recent-first, up to MAX_REPLY
+local reply_index  = 0           -- 0 = not cycling yet, 1..#reply_list = current position
+local ctrl_held    = false       -- track ctrl key state (DIK 29)
 
 ----------------------------------------------------------------------
 -- HELPERS
@@ -88,6 +88,35 @@ end
 
 local function unescape(s)
     return s:gsub('<<PIPE>>', '|')
+end
+
+----------------------------------------------------------------------
+-- REPLY LIST MANAGEMENT
+----------------------------------------------------------------------
+-- Cap at MAX_REPLY entries.
+local function push_reply(char_name, sender_name)
+    -- Remove existing entry for this sender (if any)
+    for i = #reply_list, 1, -1 do
+        if reply_list[i].sender == sender_name then
+            table.remove(reply_list, i)
+        end
+    end
+
+    -- Insert at front (most recent)
+    table.insert(reply_list, 1, { char = char_name, sender = sender_name })
+
+    -- Trim to cap
+    while #reply_list > MAX_REPLY do
+        table.remove(reply_list)
+    end
+
+    -- Reset cycle position so next Ctrl+C starts from the newest
+    reply_index = 0
+end
+
+-- Called when an outgoing tell is sent — reset cycle back to most recent
+local function reset_reply_cycle()
+    reply_index = 0
 end
 
 ----------------------------------------------------------------------
@@ -221,9 +250,8 @@ windower.register_event('incoming chunk', function(id, data)
             -- Clean up any auto-translate brackets or trailing bytes
             message = message:gsub('%z', '')
 
-            -- Track for reply
-            last_tell_char   = MY_NAME
-            last_tell_sender = from_player
+            -- Track for reply cycling
+            push_reply(MY_NAME, from_player)
 
             write_message('in', from_player, message)
         end
@@ -243,6 +271,9 @@ windower.register_event('outgoing chunk', function(id, data)
             local message = parsed['Message']     or parsed['message']     or ''
 
             message = message:gsub('%z', '')
+
+            -- Reset cycle so next Ctrl+C starts from most recent sender
+            reset_reply_cycle()
 
             write_message('out', target, message)
         end
@@ -265,10 +296,9 @@ windower.register_event('prerender', function()
     if msgs then
         for _, m in ipairs(msgs) do
             show_relayed_tell(m.sender, m.direction, m.other_player, m.message)
-            -- Track for reply — only incoming tells update the reply target
+            -- Track for reply cycling — only incoming tells
             if m.direction == 'in' then
-                last_tell_char   = m.sender
-                last_tell_sender = m.other_player
+                push_reply(m.sender, m.other_player)
             end
         end
     end
@@ -277,7 +307,7 @@ windower.register_event('prerender', function()
 end)
 
 ----------------------------------------------------------------------
--- REPLY — Ctrl+C intercept via keyboard event
+-- REPLY — Ctrl+C cycles through the last N unique incoming senders
 ----------------------------------------------------------------------
 windower.register_event('keyboard', function(dik, key_up, blocked)
     -- Track ctrl state (DIK 29)
@@ -289,19 +319,27 @@ windower.register_event('keyboard', function(dik, key_up, blocked)
 
     -- Ctrl+C (DIK 46) on key press
     if dik == 46 and key_up and ctrl_held then
-        if last_tell_char and last_tell_sender then
-            local text
-            if last_tell_char == MY_NAME then
-                text = '/tell ' .. last_tell_sender .. ' '
-            else
-                text = '//send ' .. last_tell_char .. ' /tell ' .. last_tell_sender .. ' '
-            end
-            -- keyboard_type opens chat, then set_input replaces with full text
-            windower.send_command('keyboard_type /tell ')
-            coroutine.schedule(function()
-                windower.chat.set_input(text)
-            end, 0.1)
+        if #reply_list == 0 then return end
+
+        -- Advance the cycle index (1-based, wraps around)
+        reply_index = reply_index + 1
+        if reply_index > #reply_list then
+            reply_index = 1
         end
+
+        local entry = reply_list[reply_index]
+        local text
+        if entry.char == MY_NAME then
+            text = '/tell ' .. entry.sender .. ' '
+        else
+            text = '//send ' .. entry.char .. ' /tell ' .. entry.sender .. ' '
+        end
+
+        -- keyboard_type opens chat, then set_input replaces with full text
+        windower.send_command('keyboard_type /tell ')
+        coroutine.schedule(function()
+            windower.chat.set_input(text)
+        end, 0.1)
     end
 end)
 
@@ -311,12 +349,29 @@ end)
 windower.register_event('load', function()
     windower.create_dir(SHARED_DIR)
 
-    -- Seek to end of existing log so we don't replay old messages
+    -- Seed reply list from existing log (incoming tells only, within MAX_AGE)
     local f = io.open(LOG_FILE, 'r')
     if f then
+        local content = f:read('*a')
         f:seek('end')
         last_read_pos = f:seek()
         f:close()
+
+        if content and #content > 0 then
+            local now = os.time()
+            -- Parse all incoming tells to build the reply list in chronological order
+            for line in content:gmatch('[^\n]+') do
+                local ts, sender, direction, other_player = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|')
+                if ts and direction == 'in' then
+                    ts = tonumber(ts)
+                    sender       = unescape(sender)
+                    other_player = unescape(other_player)
+                    if (now - ts) < MAX_AGE then
+                        push_reply(sender, other_player)
+                    end
+                end
+            end
+        end
     end
 end)
 

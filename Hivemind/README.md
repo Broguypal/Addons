@@ -22,6 +22,8 @@ Press **Ctrl+C** from any character window. The chat box opens with the reply pr
 
 Cross-character replies require the **Send** addon.
 
+Repeated presses of **Ctrl+C** will cycle through the last 5 unique players who messaged you.
+
 ## Install
 
 1. Copy the `Hivemind` folder into `Windower4/addons/`
