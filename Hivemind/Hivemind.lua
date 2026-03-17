@@ -261,24 +261,17 @@ windower.register_event('keyboard', function(dik, key_up, blocked)
     -- Ctrl+C (DIK 46) on key press
     if dik == 46 and key_up and ctrl_held then
         if last_tell_char and last_tell_sender then
-            local tell_char = last_tell_char
-            local tell_sender = last_tell_sender
-            local my_name = MY_NAME
-
-            -- Delay so ctrl is physically released before typing
+            local text
+            if last_tell_char == MY_NAME then
+                text = '/tell ' .. last_tell_sender .. ' '
+            else
+                text = '//send ' .. last_tell_char .. ' /tell ' .. last_tell_sender .. ' '
+            end
+            -- keyboard_type opens chat, then set_input replaces with full text
+            windower.send_command('keyboard_type /tell ')
             coroutine.schedule(function()
-                local text
-                if tell_char == my_name then
-                    text = '/tell ' .. tell_sender .. ' '
-                else
-                    text = '//send ' .. tell_char .. ' /tell ' .. tell_sender .. ' '
-                end
-                -- keyboard_type opens chat, then set_input replaces with full text
-                windower.send_command('keyboard_type /tell ')
-                coroutine.schedule(function()
-                    windower.chat.set_input(text)
-                end, 0.1)
-            end, 0.3)
+                windower.chat.set_input(text)
+            end, 0.1)
         end
     end
 end)
