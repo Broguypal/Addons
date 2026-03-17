@@ -336,7 +336,7 @@ windower.register_event('keyboard', function(dik, key_up, blocked)
         end
 
         -- keyboard_type opens chat, then set_input replaces with full text
-        windower.send_command('keyboard_type /tell ')
+        windower.send_command('keyboard_type / ')
         coroutine.schedule(function()
             windower.chat.set_input(text)
         end, 0.1)
