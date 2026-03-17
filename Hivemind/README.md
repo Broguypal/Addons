@@ -20,7 +20,7 @@ So you always know which character actually received the tell.
 
 ## Replying
 
-Press **Ctrl+T** from any character window. The chat line will pre-fill with:
+Press **Ctrl+Numpad0** from any character window. The chat line will pre-fill with:
 
 ```
 //send CharName /tell PlayerName 
