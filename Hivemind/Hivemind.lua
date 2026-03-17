@@ -150,11 +150,10 @@ local function maybe_prune()
             f:close()
         end
 
-        -- Reset read position since we rewrote the file
         last_read_pos = f and 0 or last_read_pos
     end)
 
-    -- After purgin, reset read position to end of new file
+    -- After purging, reset read position to end of new file
     local f = io.open(LOG_FILE, 'r')
     if f then
         f:seek('end')
@@ -183,7 +182,7 @@ windower.register_event('incoming chunk', function(id, data)
 
     if id == 0x017 then
         local parsed = packets.parse('incoming', data)
-        -- Mode 3 = /tell 
+        -- Mode 3 = /tell, Mode 4 = /tell (GM), etc.
         if parsed and parsed['Mode'] == 3 then
             local from_player = parsed['Sender Name'] or parsed['sender_name'] or 'Unknown'
             local message     = parsed['Message']     or parsed['message']     or ''
@@ -231,10 +230,11 @@ end)
 windower.register_event('load', function()
     ensure_dir(SHARED_DIR)
 
-    -- Bind Ctrl+T to reply
-	windower.send_command('unbind ^t')
-    windower.send_command('bind ^t hivemind reply')
+    -- Unbind game default Ctrl+T first, then bind to reply
+    windower.send_command('unbind ^t')
+    windower.send_command('bind ^t input //hm r ')
 
+    -- Seek to end of existing log so we don't replay old messages
     local f = io.open(LOG_FILE, 'r')
     if f then
         f:seek('end')
@@ -262,15 +262,18 @@ end
 ----------------------------------------------------------------------
 -- REPLY COMMAND
 ----------------------------------------------------------------------
-windower.register_event('addon command', function(cmd)
+windower.register_event('addon command', function(cmd, ...)
     cmd = cmd and cmd:lower() or ''
 
-    if cmd == 'reply' then
-        if last_tell_char and last_tell_sender then
-            windower.send_command('input //send %s /tell %s ':format(
-                last_tell_char, last_tell_sender))
-        else
+    if cmd == 'r' then
+        local msg = table.concat({...}, ' ')
+        if not last_tell_char or not last_tell_sender then
             windower.add_to_chat(167, '[Hivemind] No recent tell to reply to.')
+        elseif #msg == 0 then
+            windower.add_to_chat(167, '[Hivemind] Usage: //hm r <message>')
+        else
+            windower.send_command('input //send %s /tell %s %s':format(
+                last_tell_char, last_tell_sender, msg))
         end
     end
 end)
