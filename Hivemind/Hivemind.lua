@@ -244,7 +244,7 @@ windower.register_event('load', function()
 end)
 
 windower.register_event('unload', function()
-    windower.send_command('unbind ^t')
+    windower.send_command('unbind ^numpad0')
 end)
 
 windower.register_event('login', function(name)
