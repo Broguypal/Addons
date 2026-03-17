@@ -1,7 +1,38 @@
+--[[
+BSD 3-Clause License
+
+Copyright (c) 2026 Broguypal
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of Broguypal nor the names of its contributors may be used
+   to endorse or promote products derived from this software without specific
+   prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+]]
+
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal'
 _addon.version = '1.0'
-_addon.commands = {'hivemind', 'hm'}
 
 local packets = require('packets')
 
@@ -15,12 +46,8 @@ local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
 local POLL_RATE   = 0.1          -- seconds between polls
-local MAX_AGE     = 300          -- prune messages older than 5 min
+local MAX_AGE     = 300          -- purgw messages older than 5 min
 local MY_NAME     = nil          -- filled on load
-
--- Reply tracking — updated by both local tells and relayed tells
-local last_tell_char   = nil    -- which of YOUR characters got the tell
-local last_tell_sender = nil    -- the player who sent it
 
 ----------------------------------------------------------------------
 -- HELPERS
@@ -30,7 +57,7 @@ local function ensure_dir(path)
     os.execute('mkdir "' .. path:gsub('/', '\\') .. '" 2>nul')
 end
 
--- Simple file lock: create a .lock file, yield if it exists
+-- create a .lock file, yield if it exists
 local function with_lock(func)
     local lock_path = LOG_FILE .. LOCK_SUFFIX
     local attempts = 0
@@ -149,8 +176,6 @@ local function maybe_prune()
             if #kept > 0 then f:write('\n') end
             f:close()
         end
-
-        last_read_pos = f and 0 or last_read_pos
     end)
 
     -- After purging, reset read position to end of new file
@@ -190,10 +215,6 @@ windower.register_event('incoming chunk', function(id, data)
             -- Clean up any auto-translate brackets or trailing bytes
             message = message:gsub('%z', '')
 
-            -- Track for reply
-            last_tell_char   = MY_NAME
-            last_tell_sender = from_player
-
             write_message(from_player, message)
         end
     end
@@ -215,9 +236,6 @@ windower.register_event('prerender', function()
     if msgs then
         for _, m in ipairs(msgs) do
             show_relayed_tell(m.sender, m.from_player, m.message)
-            -- Track for reply — most recent tell wins
-            last_tell_char   = m.sender
-            last_tell_sender = m.from_player
         end
     end
 
@@ -230,10 +248,6 @@ end)
 windower.register_event('load', function()
     ensure_dir(SHARED_DIR)
 
-    -- Unbind game default Ctrl+Numpad0 first, then bind to reply
-    windower.send_command('unbind ^numpad0')
-    windower.send_command('bind ^numpad0 lua i Hivemind reply')
-
     -- Seek to end of existing log so we don't replay old messages
     local f = io.open(LOG_FILE, 'r')
     if f then
@@ -241,10 +255,6 @@ windower.register_event('load', function()
         last_read_pos = f:seek()
         f:close()
     end
-end)
-
-windower.register_event('unload', function()
-    windower.send_command('unbind ^numpad0')
 end)
 
 windower.register_event('login', function(name)
@@ -258,31 +268,3 @@ if player then
     MY_NAME = player.name
     windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end
-
-----------------------------------------------------------------------
--- REPLY COMMAND
-----------------------------------------------------------------------
-windower.register_event('addon command', function(cmd, ...)
-    cmd = cmd and cmd:lower() or ''
-
-    if cmd == 'reply' then
-        if not last_tell_char or not last_tell_sender then
-            windower.add_to_chat(167, '[Hivemind] No recent tell to reply to.')
-            return
-        end
-
-        windower.send_command('setkey enter')
-
-        coroutine.schedule(function()
-            if last_tell_char == MY_NAME then
-                windower.send_command(
-                    ('setkey "/tell %s "'):format(last_tell_sender)
-                )
-            else
-                windower.send_command(
-                    ('setkey "//send %s /tell %s "'):format(last_tell_char, last_tell_sender)
-                )
-            end
-        end, 0.05)
-    end
-end)
