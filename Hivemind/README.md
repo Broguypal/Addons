@@ -18,6 +18,19 @@ So you always know which character actually received the tell.
 2. Load on each character: `//lua load Hivemind`
 3. (Optional) Add `lua load Hivemind` to your init file to auto-load
 
+## Replying
+
+Press **Ctrl+C** from any character window. The chat box opens with the reply pre-filled:
+
+- If the tell was received on the current character: `/tell PlayerName `
+- If received on a different character: `//send CharName /tell PlayerName `
+
+Just type your message and hit enter. The reply always goes out from the character who received the tell.
+
+Ctrl+C is intercepted via Windower's keyboard event. If no tell has been received yet, the keypress is ignored.
+
+Cross-character replies require the **Send** addon.
+
 ## How it works
 
 All instances share a log file at `addons/Hivemind/shared/messages.log`. When a tell arrives, the addon writes it to the log. Each instance polls the log for new entries and displays tells from other characters.

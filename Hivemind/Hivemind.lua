@@ -46,18 +46,18 @@ local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
 local POLL_RATE   = 0.1          -- seconds between polls
-local MAX_AGE     = 300          -- purge messages older than 5 min
+local MAX_AGE     = 300          -- prune messages older than 5 min
 local MY_NAME     = nil          -- filled on load
+
+-- Reply tracking — updated by both local tells and relayed tells
+local last_tell_char   = nil    -- which of YOUR characters got the tell
+local last_tell_sender = nil    -- the player who sent it
+local ctrl_held        = false  -- track ctrl key state (DIK 29)
 
 ----------------------------------------------------------------------
 -- HELPERS
 ----------------------------------------------------------------------
--- Make sure the shared directory exists
-local function ensure_dir(path)
-    windower.create_dir(path)
-end
-
--- create a .lock file, yield if it exists
+-- Simple file lock: create a .lock file, yield if it exists
 local function with_lock(func)
     local lock_path = LOG_FILE .. LOCK_SUFFIX
     local attempts = 0
@@ -215,6 +215,10 @@ windower.register_event('incoming chunk', function(id, data)
             -- Clean up any auto-translate brackets or trailing bytes
             message = message:gsub('%z', '')
 
+            -- Track for reply
+            last_tell_char   = MY_NAME
+            last_tell_sender = from_player
+
             write_message(from_player, message)
         end
     end
@@ -236,6 +240,9 @@ windower.register_event('prerender', function()
     if msgs then
         for _, m in ipairs(msgs) do
             show_relayed_tell(m.sender, m.from_player, m.message)
+            -- Track for reply — most recent tell wins
+            last_tell_char   = m.sender
+            last_tell_sender = m.from_player
         end
     end
 
@@ -243,10 +250,46 @@ windower.register_event('prerender', function()
 end)
 
 ----------------------------------------------------------------------
+-- REPLY — Ctrl+C intercept via keyboard event
+----------------------------------------------------------------------
+windower.register_event('keyboard', function(dik, key_up, blocked)
+    -- Track ctrl state (DIK 29)
+    -- Note: key_up=true means pressed, key_up=false means released
+    if dik == 29 then
+        ctrl_held = key_up
+        return
+    end
+
+    -- Ctrl+C (DIK 46) on key press
+    if dik == 46 and key_up and ctrl_held then
+        if last_tell_char and last_tell_sender then
+            local tell_char = last_tell_char
+            local tell_sender = last_tell_sender
+            local my_name = MY_NAME
+
+            -- Delay so ctrl is physically released before typing
+            coroutine.schedule(function()
+                local text
+                if tell_char == my_name then
+                    text = '/tell ' .. tell_sender .. ' '
+                else
+                    text = '//send ' .. tell_char .. ' /tell ' .. tell_sender .. ' '
+                end
+                -- keyboard_type opens chat, then set_input replaces with full text
+                windower.send_command('keyboard_type /tell ')
+                coroutine.schedule(function()
+                    windower.chat.set_input(text)
+                end, 0.1)
+            end, 0.3)
+        end
+    end
+end)
+
+----------------------------------------------------------------------
 -- INIT
 ----------------------------------------------------------------------
 windower.register_event('load', function()
-    ensure_dir(SHARED_DIR)
+    windower.create_dir(SHARED_DIR)
 
     -- Seek to end of existing log so we don't replay old messages
     local f = io.open(LOG_FILE, 'r')
