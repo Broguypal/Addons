@@ -182,7 +182,7 @@ windower.register_event('incoming chunk', function(id, data)
 
     if id == 0x017 then
         local parsed = packets.parse('incoming', data)
-        -- Mode 3 = /tell, Mode 4 = /tell (GM), etc.
+        -- Mode 3 = /tell
         if parsed and parsed['Mode'] == 3 then
             local from_player = parsed['Sender Name'] or parsed['sender_name'] or 'Unknown'
             local message     = parsed['Message']     or parsed['message']     or ''
