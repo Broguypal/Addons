@@ -1,0 +1,29 @@
+# Hivemind
+
+A Windower 4 addon that relays incoming /tells across all your multiboxed characters.
+
+## What it does
+
+When any of your characters receives a /tell, every other character running Hivemind will see it in their chat log. Messages appear as:
+
+```
+[CharacterName] SenderPlayer >> message
+```
+
+So you always know which character actually received the tell.
+
+## Install
+
+1. Copy the `Hivemind` folder into `Windower4/addons/`
+2. Load on each character: `//lua load Hivemind`
+3. (Optional) Add `lua load Hivemind` to your init file to auto-load
+
+## How it works
+
+All instances share a log file at `addons/Hivemind/shared/messages.log`. When a tell arrives, the addon writes it to the log. Each instance polls the log for new entries and displays tells from other characters.
+
+- No external dependencies
+- Messages older than 5 minutes are automatically pruned
+- On load, only new messages are shown — no old message flooding
+- Does not inject packets
+
