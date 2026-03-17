@@ -91,18 +91,19 @@ local function unescape(s)
 end
 
 ----------------------------------------------------------------------
--- MESSAGE LOG  (format: timestamp|sender_char|from_player|message\n)
+-- MESSAGE LOG  (format: timestamp|sender_char|direction|other_player|message\n)
 ----------------------------------------------------------------------
 local last_read_pos = 0  -- byte offset we've read up to
 
-local function write_message(from_player, message)
+local function write_message(direction, other_player, message)
     with_lock(function()
         local f = io.open(LOG_FILE, 'a')
         if f then
-            local line = string.format('%d|%s|%s|%s\n',
+            local line = string.format('%d|%s|%s|%s|%s\n',
                 os.time(),
                 escape(MY_NAME),
-                escape(from_player),
+                direction,
+                escape(other_player),
                 escape(message))
             f:write(line)
             f:close()
@@ -125,18 +126,19 @@ local function read_new_messages()
 
         local now = os.time()
         for line in new_data:gmatch('[^\n]+') do
-            local ts, sender, from_player, message = line:match('^(%d+)|([^|]*)|([^|]*)|(.+)$')
+            local ts, sender, direction, other_player, message = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|(.+)$')
             if ts then
                 ts = tonumber(ts)
-                sender     = unescape(sender)
-                from_player = unescape(from_player)
-                message     = unescape(message)
+                sender       = unescape(sender)
+                other_player = unescape(other_player)
+                message      = unescape(message)
 
                 if sender ~= MY_NAME and (now - ts) < MAX_AGE then
                     table.insert(results, {
-                        sender      = sender,
-                        from_player = from_player,
-                        message     = message,
+                        sender       = sender,
+                        direction    = direction,
+                        other_player = other_player,
+                        message      = message,
                     })
                 end
             end
@@ -191,9 +193,15 @@ end
 -- Color 4 = tell color in default FFXI chat
 local TELL_COLOR = 4
 
-local function show_relayed_tell(sender_char, from_player, message)
-    -- Show which of your characters received it
-    local display = string.format('[%s] %s >> %s', sender_char, from_player, message)
+local function show_relayed_tell(sender_char, direction, other_player, message)
+    local display
+    if direction == 'out' then
+        -- Outgoing: show that your other character sent a tell
+        display = string.format('[%s] >> %s : %s', sender_char, other_player, message)
+    else
+        -- Incoming: show that your other character received a tell
+        display = string.format('[%s] %s >> %s', sender_char, other_player, message)
+    end
     windower.add_to_chat(TELL_COLOR, display)
 end
 
@@ -217,7 +225,26 @@ windower.register_event('incoming chunk', function(id, data)
             last_tell_char   = MY_NAME
             last_tell_sender = from_player
 
-            write_message(from_player, message)
+            write_message('in', from_player, message)
+        end
+    end
+end)
+
+----------------------------------------------------------------------
+-- PACKET HOOK — capture outgoing tells (sent by this character)
+----------------------------------------------------------------------
+windower.register_event('outgoing chunk', function(id, data)
+    if not MY_NAME then return end
+
+    if id == 0xB6 then
+        local parsed = packets.parse('outgoing', data)
+        if parsed then
+            local target  = parsed['Target Name'] or parsed['target_name'] or 'Unknown'
+            local message = parsed['Message']     or parsed['message']     or ''
+
+            message = message:gsub('%z', '')
+
+            write_message('out', target, message)
         end
     end
 end)
@@ -237,10 +264,12 @@ windower.register_event('prerender', function()
     local msgs = read_new_messages()
     if msgs then
         for _, m in ipairs(msgs) do
-            show_relayed_tell(m.sender, m.from_player, m.message)
-            -- Track for reply — most recent tell wins
-            last_tell_char   = m.sender
-            last_tell_sender = m.from_player
+            show_relayed_tell(m.sender, m.direction, m.other_player, m.message)
+            -- Track for reply — only incoming tells update the reply target
+            if m.direction == 'in' then
+                last_tell_char   = m.sender
+                last_tell_sender = m.other_player
+            end
         end
     end
 
