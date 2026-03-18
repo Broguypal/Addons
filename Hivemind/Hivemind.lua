@@ -44,9 +44,9 @@ local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
 local POLL_RATE   = 0.1          -- seconds between polls
-local MAX_AGE     = 1800         -- prune messages older than 30 min
+local MAX_AGE     = 3600         -- purge messages older than 1 hour
 local MY_NAME     = nil          -- filled on load
-local MAX_REPLY   = 5            -- max unique senders to cycle through
+local MAX_REPLY   = 6            -- max unique senders to cycle through
 
 local reply_list   = {}          -- ordered most-recent-first, up to MAX_REPLY
 local reply_index  = 0           -- 0 = not cycling yet, 1..#reply_list = current position
