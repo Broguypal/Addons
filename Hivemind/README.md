@@ -22,7 +22,7 @@ Press **Ctrl+C** from any character window. The chat box opens with the reply pr
 
 Cross-character replies require the **Send** addon.
 
-Repeated presses of **Ctrl+C** will cycle through the last 6 unique players who messaged you.
+Repeated presses of **Alt+R** will cycle through the last 6 unique players who messaged you.
 
 ## Install
 
