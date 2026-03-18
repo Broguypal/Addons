@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal'
 _addon.version = '1.0'
+_addon.command = 'hivemind'
 
 local packets = require('packets')
 
@@ -50,11 +51,38 @@ local MAX_REPLY   = 6            -- max unique senders to cycle through
 
 local reply_list   = {}          -- ordered most-recent-first, up to MAX_REPLY
 local reply_index  = 0           -- 0 = not cycling yet, 1..#reply_list = current position
-local ctrl_held    = false       -- track ctrl key state (DIK 29)
+local alt_held     = false       -- track alt key state
 
 ----------------------------------------------------------------------
 -- HELPERS
 ----------------------------------------------------------------------
+local function cycle_reply()
+    if #reply_list == 0 then
+        windower.add_to_chat(167, '[Hivemind] No tells in memory to reply to.')
+        return 
+    end
+
+    -- Advance the cycle index (1-based, wraps around)
+    reply_index = reply_index + 1
+    if reply_index > #reply_list then
+        reply_index = 1
+    end
+
+    local entry = reply_list[reply_index]
+    local text
+    if entry.char == MY_NAME then
+        text = '/tell ' .. entry.sender .. ' '
+    else
+        text = '//send ' .. entry.char .. ' /tell ' .. entry.sender .. ' '
+    end
+
+    -- keyboard_type opens chat, then set_input replaces with full text
+    windower.send_command('keyboard_type / ')
+    coroutine.schedule(function()
+        windower.chat.set_input(text)
+    end, 0.1)
+end
+
 -- Simple file lock: create a .lock file, yield if it exists
 local function with_lock(func)
     local lock_path = LOG_FILE .. LOCK_SUFFIX
@@ -110,7 +138,7 @@ local function push_reply(char_name, sender_name)
         table.remove(reply_list)
     end
 
-    -- Reset cycle position so next Ctrl+C starts from the newest
+    -- Reset cycle position so next Alt+/ starts from the newest
     reply_index = 0
 end
 
@@ -272,7 +300,7 @@ windower.register_event('outgoing chunk', function(id, data)
 
             message = message:gsub('%z', '')
 
-            -- Reset cycle so next Ctrl+C starts from most recent sender
+            -- Reset cycle so next Alt+R starts from most recent sender
             reset_reply_cycle()
 
             write_message('out', target, message)
@@ -307,47 +335,38 @@ windower.register_event('prerender', function()
 end)
 
 ----------------------------------------------------------------------
--- REPLY — Ctrl+C cycles through the last N unique incoming senders
+-- REPLY — Alt+R cycles through the last N unique incoming senders
 ----------------------------------------------------------------------
-windower.register_event('keyboard', function(dik, key_up, blocked)
-    -- Track ctrl state (DIK 29)
-    -- Note: key_up=true means pressed, key_up=false means released
-    if dik == 29 then
-        ctrl_held = key_up
-        return
+windower.register_event('addon command', function(...)
+    local args = {...}
+    if args[1] and args[1]:lower() == 'reply' then
+        cycle_reply()
+    end
+end)
+
+windower.register_event('lose focus', function()
+    alt_held = false
+end)
+
+windower.register_event('keyboard', function(dik, pressed, blocked)
+    -- Track alt state (DIK 56 or 184)
+    if dik == 56 or dik == 184 then
+        alt_held = pressed
     end
 
-    -- Ctrl+C (DIK 46) on key press
-    if dik == 46 and key_up and ctrl_held then
-        if #reply_list == 0 then return end
-
-        -- Advance the cycle index (1-based, wraps around)
-        reply_index = reply_index + 1
-        if reply_index > #reply_list then
-            reply_index = 1
-        end
-
-        local entry = reply_list[reply_index]
-        local text
-        if entry.char == MY_NAME then
-            text = '/tell ' .. entry.sender .. ' '
-        else
-            text = '//send ' .. entry.char .. ' /tell ' .. entry.sender .. ' '
-        end
-
-        -- keyboard_type opens chat, then set_input replaces with full text
-        windower.send_command('keyboard_type / ')
-        coroutine.schedule(function()
-            windower.chat.set_input(text)
-        end, 0.1)
+    -- Skip other keys if chat is open or already blocked
+    if blocked or windower.ffxi.get_info().chat_open then
+        return
     end
 end)
 
 ----------------------------------------------------------------------
--- INIT
+-- PACKET HOOK — capture incoming tells
 ----------------------------------------------------------------------
+
 windower.register_event('load', function()
     windower.create_dir(SHARED_DIR)
+    windower.send_command('bind !r hivemind reply')
 
     -- Seed reply list from existing log (incoming tells only, within MAX_AGE)
     local f = io.open(LOG_FILE, 'r')
@@ -375,8 +394,13 @@ windower.register_event('load', function()
     end
 end)
 
+windower.register_event('unload', function()
+    windower.send_command('unbind !r')
+end)
+
 windower.register_event('login', function(name)
     MY_NAME = name
+    windower.send_command('bind !r hivemind reply')
     windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end)
 
@@ -384,5 +408,6 @@ end)
 local player = windower.ffxi.get_player()
 if player then
     MY_NAME = player.name
+    windower.send_command('bind !r hivemind reply')
     windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end
