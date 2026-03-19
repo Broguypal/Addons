@@ -15,7 +15,7 @@ So you always know which character actually received the tell.
 
 ## Replying
 
-Press **Ctrl+C** from any character window. The chat box opens with the reply pre-filled:
+Press **Alt+R** from any character window. The chat box opens with the reply pre-filled:
 
 - If the tell was received on the current character: `/tell PlayerName `
 - If received on a different character: `//send CharName /tell PlayerName `
