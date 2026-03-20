@@ -52,7 +52,6 @@ local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl
 
 local reply_list   = {}          -- ordered most-recent-first, up to MAX_REPLY
 local reply_index  = 0           -- 0 = not cycling yet, 1..#reply_list = current position
-local alt_held     = false       -- track alt key state
 
 ----------------------------------------------------------------------
 -- HELPERS
@@ -345,24 +344,8 @@ windower.register_event('addon command', function(...)
     end
 end)
 
-windower.register_event('lose focus', function()
-    alt_held = false
-end)
-
-windower.register_event('keyboard', function(dik, pressed, blocked)
-    -- Track alt state (DIK 56 or 184)
-    if dik == 56 or dik == 184 then
-        alt_held = pressed
-    end
-
-    -- Skip other keys if chat is open or already blocked
-    if blocked or windower.ffxi.get_info().chat_open then
-        return
-    end
-end)
-
 ----------------------------------------------------------------------
--- PACKET HOOK — capture incoming tells
+-- INITIALIZATION - handling load, unload, and login events
 ----------------------------------------------------------------------
 
 windower.register_event('load', function()
