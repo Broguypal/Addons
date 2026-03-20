@@ -24,6 +24,12 @@ Cross-character replies require the **Send** addon.
 
 Repeated presses of **Alt+R** will cycle through the last 6 unique players who messaged you.
 
+To change the default keybind, open `Hivemind.lua` and edit the `REPLY_BIND` variable near the top of the file:
+
+```lua
+local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
+```
+
 ## Install
 
 1. Copy the `Hivemind` folder into `Windower4/addons/`
