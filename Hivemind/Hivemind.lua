@@ -48,6 +48,7 @@ local POLL_RATE   = 0.1          -- seconds between polls
 local MAX_AGE     = 3600         -- purge messages older than 1 hour
 local MY_NAME     = nil          -- filled on load
 local MAX_REPLY   = 6            -- max unique senders to cycle through
+local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
 
 local reply_list   = {}          -- ordered most-recent-first, up to MAX_REPLY
 local reply_index  = 0           -- 0 = not cycling yet, 1..#reply_list = current position
@@ -366,7 +367,7 @@ end)
 
 windower.register_event('load', function()
     windower.create_dir(SHARED_DIR)
-    windower.send_command('bind !r hivemind reply')
+    windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
 
     -- Seed reply list from existing log (incoming tells only, within MAX_AGE)
     local f = io.open(LOG_FILE, 'r')
@@ -395,12 +396,12 @@ windower.register_event('load', function()
 end)
 
 windower.register_event('unload', function()
-    windower.send_command('unbind !r')
+    windower.send_command('unbind ' .. REPLY_BIND)
 end)
 
 windower.register_event('login', function(name)
     MY_NAME = name
-    windower.send_command('bind !r hivemind reply')
+    windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
     windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end)
 
@@ -408,6 +409,6 @@ end)
 local player = windower.ffxi.get_player()
 if player then
     MY_NAME = player.name
-    windower.send_command('bind !r hivemind reply')
+    windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
     windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end
