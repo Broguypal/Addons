@@ -38,20 +38,22 @@ _addon.command = 'hivemind'
 local packets = require('packets')
 
 ----------------------------------------------------------------------
--- CONFIG
+-- USER CONFIG — feel free to change these
 ----------------------------------------------------------------------
--- Shared directory: all instances read/write here.
+local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
+local MAX_REPLY   = 6            -- max unique senders to cycle through
+local POLL_RATE   = 0.1          -- how often to check for new tells (in seconds)
+local MAX_AGE     = 3600         -- purge messages older than 1 hour
+
+----------------------------------------------------------------------
+-- INTERNALS — do not edit below this line
+----------------------------------------------------------------------
 local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
 local LOG_FILE    = SHARED_DIR .. 'messages.log'
 local LOCK_SUFFIX = '.lock'
-local POLL_RATE   = 0.1          -- seconds between polls
-local MAX_AGE     = 3600         -- purge messages older than 1 hour
 local MY_NAME     = nil          -- filled on load
-local MAX_REPLY   = 6            -- max unique senders to cycle through
-local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
-
-local reply_list   = {}          -- ordered most-recent-first, up to MAX_REPLY
-local reply_index  = 0           -- 0 = not cycling yet, 1..#reply_list = current position
+local reply_list  = {}           -- ordered most-recent-first, up to MAX_REPLY
+local reply_index = 0            -- 0 = not cycling yet, 1..#reply_list = current position
 
 ----------------------------------------------------------------------
 -- HELPERS
