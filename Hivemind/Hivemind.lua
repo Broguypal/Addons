@@ -31,7 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ]]
 
 _addon.name    = 'Hivemind'
-_addon.author  = 'Broguypal, Frodobald'
+_addon.author  = 'Broguypal + Frodobald'
 _addon.version = '2.0'
 _addon.command = 'hivemind'
 
@@ -42,23 +42,30 @@ local packets = require('packets')
 ----------------------------------------------------------------------
 local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
 local LS_BIND     = '!l'         -- keybind for linkshell cycling (! = Alt, ^ = Ctrl, @ = Win)
-local MAX_REPLY   = 6            -- max unique targets to cycle through
+local MAX_REPLY   = 12            -- max unique targets to cycle through
 local POLL_RATE   = 0.1          -- how often to check for new messages (in seconds)
 local MAX_AGE     = 3600         -- purge messages older than 1 hour
+local LS_ENABLED  = true         -- set to false to disable linkshell monitoring entirely
 
 ----------------------------------------------------------------------
 -- INTERNALS
 ----------------------------------------------------------------------
-local SHARED_DIR     = windower.windower_path .. 'addons/Hivemind/shared/'
-local LOG_FILE       = SHARED_DIR .. 'messages.log'
-local LOCK_SUFFIX    = '.lock'
-local MY_NAME        = nil
-local reply_list     = {}           -- unique {char, sender} for tells
-local reply_index    = 0
-local ls_target_list = {}           -- unique {char, mode} for linkshells
-local ls_reply_index = 0
-local recent_ls_msgs = {}           -- deduplication {hash = timestamp}
-local last_poll      = os.clock()
+local SHARED_DIR          = windower.windower_path .. 'addons/Hivemind/shared/'
+local LOG_FILE            = SHARED_DIR .. 'messages.log'
+local LOCK_SUFFIX         = '.lock'
+local MY_NAME             = nil
+local reply_list          = {}      -- unique {char, sender} for tells
+local reply_index         = 0
+local ls_target_list      = {}      -- unique {char, mode} for linkshells (activity-based priority)
+local ls_reply_index      = 0
+local recent_ls_msgs      = {}      -- deduplication {hash = timestamp}
+local last_poll           = os.clock()
+
+-- Presence tracking — in-memory, driven by log entries
+local HEARTBEAT_INTERVAL  = 30      -- seconds between heartbeat log entries
+local PRESENCE_TIMEOUT    = 120     -- consider offline after 2 min without heartbeat
+local last_heartbeat      = 0
+local online_chars        = {}      -- { [char_name] = last_seen_timestamp }
 
 local COLORS = { tell=4, ls1=6, ls2=213, info=167 }
 
@@ -86,6 +93,46 @@ local function with_lock(func)
 end
 
 ----------------------------------------------------------------------
+-- PRESENCE TRACKING — log-based, no external files
+----------------------------------------------------------------------
+local function prune_presence()
+    local now = os.time()
+    for name, last_seen in pairs(online_chars) do
+        if name ~= MY_NAME and (now - last_seen) >= PRESENCE_TIMEOUT then
+            online_chars[name] = nil
+        end
+    end
+end
+
+local function get_online_ls_chars()
+    local chars = {}
+    local seen = {}
+
+    -- Current character first
+    table.insert(chars, { char = MY_NAME, mode = 'ls1' })
+    table.insert(chars, { char = MY_NAME, mode = 'ls2' })
+    seen[MY_NAME] = true
+
+    -- Other online characters
+    for name, _ in pairs(online_chars) do
+        if not seen[name] then
+            seen[name] = true
+            table.insert(chars, { char = name, mode = 'ls1' })
+            table.insert(chars, { char = name, mode = 'ls2' })
+        end
+    end
+
+    return chars
+end
+
+local function is_char_online(char_name)
+    if char_name == MY_NAME then return true end
+    local last_seen = online_chars[char_name]
+    if not last_seen then return false end
+    return (os.time() - last_seen) < PRESENCE_TIMEOUT
+end
+
+----------------------------------------------------------------------
 -- TARGET MANAGEMENT
 ----------------------------------------------------------------------
 local function push_reply_target(char_name, sender_name)
@@ -110,6 +157,17 @@ end
 
 ----------------------------------------------------------------------
 -- LOGGING
+--
+-- Log format: timestamp|sender_char|mode|other_player|message
+--
+-- mode values:
+--   tell_in    = incoming tell
+--   tell_out   = outgoing tell
+--   ls1        = linkshell 1 message
+--   ls2        = linkshell 2 message
+--   login      = character came online
+--   heartbeat  = presence keepalive
+--   logout     = character went offline
 ----------------------------------------------------------------------
 local last_read_pos = 0
 
@@ -124,8 +182,17 @@ local function write_message(mode, other_player, message)
     end)
 end
 
+local function write_heartbeat()
+    local now = os.time()
+    if now - last_heartbeat < HEARTBEAT_INTERVAL then return end
+    last_heartbeat = now
+    online_chars[MY_NAME] = now
+    write_message('heartbeat', MY_NAME, 'alive')
+end
+
 local function read_new_messages()
     local results = {}
+    local seen_ls_batch = {}
     with_lock(function()
         local f = io.open(LOG_FILE, 'r')
         if not f then return end
@@ -141,8 +208,27 @@ local function read_new_messages()
             local ts, sender, mode, other_player, message = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|(.+)$')
             if ts then
                 ts, sender, mode, other_player, message = tonumber(ts), unescape(sender), unescape(mode), unescape(other_player), unescape(message)
+
+                -- Process presence entries from other characters
+                if sender ~= MY_NAME then
+                    if mode == 'login' or mode == 'heartbeat' then
+                        online_chars[sender] = ts
+                    elseif mode == 'logout' then
+                        online_chars[sender] = nil
+                    end
+                end
+
+                -- Only relay actual messages from other chars
                 if sender ~= MY_NAME and (now - ts) < MAX_AGE then
-                    table.insert(results, { sender=sender, mode=mode, other_player=other_player, message=message })
+                    if mode == 'tell_in' or mode == 'tell_out' then
+                        table.insert(results, { sender=sender, mode=mode, other_player=other_player, message=message })
+                    elseif mode == 'ls1' or mode == 'ls2' then
+                        local ls_hash = mode .. '|' .. other_player .. '|' .. message
+                        if not seen_ls_batch[ls_hash] then
+                            seen_ls_batch[ls_hash] = true
+                            table.insert(results, { sender=sender, mode=mode, other_player=other_player, message=message })
+                        end
+                    end
                 end
             end
         end
@@ -154,12 +240,17 @@ local last_prune = os.time()
 local function maybe_prune()
     if os.time() - last_prune < 60 then return end
     last_prune = os.time()
+    local now = os.time()
+    for hash, ts in pairs(recent_ls_msgs) do
+        if (now - ts) > 10 then recent_ls_msgs[hash] = nil end
+    end
+    prune_presence()
     with_lock(function()
         local f = io.open(LOG_FILE, 'r')
         if not f then return end
         local content = f:read('*a')
         f:close()
-        local now, kept = os.time(), {}
+        local kept = {}
         for line in content:gmatch('[^\n]+') do
             local ts = line:match('^(%d+)|')
             if ts and (now - tonumber(ts)) < MAX_AGE then table.insert(kept, line) end
@@ -187,10 +278,10 @@ local function show_relayed_message(sender_char, mode, other_player, message)
     elseif mode == 'tell_in' then
         display, color = string.format('[%s] %s >> %s', sender_char, other_player, message), COLORS.tell
         push_reply_target(sender_char, other_player)
-    elseif mode == 'ls1' then
+    elseif LS_ENABLED and mode == 'ls1' then
         display, color = string.format('[%s][LS1] %s: %s', sender_char, other_player, message), COLORS.ls1
         push_ls_target(sender_char, 'ls1')
-    elseif mode == 'ls2' then
+    elseif LS_ENABLED and mode == 'ls2' then
         display, color = string.format('[%s][LS2] %s: %s', sender_char, other_player, message), COLORS.ls2
         push_ls_target(sender_char, 'ls2')
     end
@@ -199,18 +290,75 @@ local function show_relayed_message(sender_char, mode, other_player, message)
 end
 
 local function cycle_reply()
-    if #reply_list == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No tells in memory.') return end
-    reply_index = (reply_index % #reply_list) + 1
-    local entry = reply_list[reply_index]
+    local online = {}
+    for _, entry in ipairs(reply_list) do
+        if entry.char == MY_NAME or is_char_online(entry.char) then
+            table.insert(online, entry)
+        end
+    end
+    if #online == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No tells in memory.') return end
+    reply_index = (reply_index % #online) + 1
+    local entry = online[reply_index]
     local text = (entry.char == MY_NAME) and ('/tell ' .. entry.sender .. ' ') or ('//send ' .. entry.char .. ' /tell ' .. entry.sender .. ' ')
     windower.send_command('keyboard_type / ')
     coroutine.schedule(function() windower.chat.set_input(text) end, 0.1)
 end
 
 local function cycle_ls_reply()
-    if #ls_target_list == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No linkshells in memory.') return end
-    ls_reply_index = (ls_reply_index % #ls_target_list) + 1
-    local target = ls_target_list[ls_reply_index]
+    if not LS_ENABLED then windower.add_to_chat(COLORS.info, '[Hivemind] Linkshell monitoring is disabled.') return end
+
+    local all_online = get_online_ls_chars()
+    if #all_online == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No online characters with linkshell access.') return end
+
+    local ordered = {}
+    local added = {}
+
+    -- Priority: specific char+LS combos where someone spoke, most recent first
+    for _, target in ipairs(ls_target_list) do
+        local key = target.char .. '|' .. target.mode
+        if not added[key] then
+            for _, online in ipairs(all_online) do
+                if online.char == target.char and online.mode == target.mode then
+                    table.insert(ordered, target)
+                    added[key] = true
+                    break
+                end
+            end
+        end
+    end
+
+    -- Default: current character first, then remaining online chars
+    local default_order = {}
+
+    -- Current character's remaining entries
+    for _, entry in ipairs(all_online) do
+        if entry.char == MY_NAME then
+            local key = entry.char .. '|' .. entry.mode
+            if not added[key] then
+                table.insert(default_order, entry)
+                added[key] = true
+            end
+        end
+    end
+
+    -- Other online characters' remaining entries
+    for _, entry in ipairs(all_online) do
+        local key = entry.char .. '|' .. entry.mode
+        if not added[key] then
+            table.insert(default_order, entry)
+            added[key] = true
+        end
+    end
+
+    -- Append defaults after the activity-priority entries
+    for _, entry in ipairs(default_order) do
+        table.insert(ordered, entry)
+    end
+
+    if #ordered == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No online characters with linkshell access.') return end
+
+    ls_reply_index = (ls_reply_index % #ordered) + 1
+    local target = ordered[ls_reply_index]
     local slash = (target.mode == 'ls1') and '/l ' or '/l2 '
     local text = (target.char == MY_NAME) and slash or ('//send ' .. target.char .. ' ' .. slash)
     windower.send_command('keyboard_type / ')
@@ -230,12 +378,12 @@ windower.register_event('incoming chunk', function(id, data)
         if mode == 3 then -- Tell Incoming
             push_reply_target(MY_NAME, sender)
             write_message('tell_in', sender, msg)
-        elseif mode == 5 then -- LS1
+        elseif LS_ENABLED and mode == 5 then -- LS1
             if sender == '' or sender == 'Unknown' then sender = MY_NAME end
             push_ls_target(MY_NAME, 'ls1')
             recent_ls_msgs['ls1|' .. sender .. '|' .. msg] = os.time()
             write_message('ls1', sender, msg)
-        elseif mode == 27 then -- LS2
+        elseif LS_ENABLED and mode == 27 then -- LS2
             if sender == '' or sender == 'Unknown' then sender = MY_NAME end
             push_ls_target(MY_NAME, 'ls2')
             recent_ls_msgs['ls2|' .. sender .. '|' .. msg] = os.time()
@@ -267,6 +415,7 @@ windower.register_event('addon command', function(...)
 end)
 
 windower.register_event('outgoing text', function(text, modified)
+    if not LS_ENABLED then return end
     local trimmed = text:trim()
     if #trimmed == 0 then return end
     local cmd, rest = trimmed:match('^(/%S+)%s*(.*)$')
@@ -291,12 +440,22 @@ windower.register_event('prerender', function()
     local msgs = read_new_messages()
     if msgs then for _, m in ipairs(msgs) do show_relayed_message(m.sender, m.mode, m.other_player, m.message) end end
     maybe_prune()
+    write_heartbeat()
 end)
 
 local function setup(name)
     MY_NAME = name
     windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
     windower.send_command('bind ' .. LS_BIND .. ' hivemind lsreply')
+
+    -- Register self in the roster
+    online_chars[MY_NAME] = os.time()
+    last_heartbeat = os.time()
+
+    -- Log the login so other characters see it
+    write_message('login', MY_NAME, 'online')
+
+    -- Seed from existing log
     local f = io.open(LOG_FILE, 'r')
     if f then
         local content = f:read('*a')
@@ -305,17 +464,44 @@ local function setup(name)
             local now = os.time()
             for line in content:gmatch('[^\n]+') do
                 local ts, sender, mode, other_player = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|')
-                if ts and (now - tonumber(ts)) < MAX_AGE then
+                if ts then
+                    ts = tonumber(ts)
                     sender = unescape(sender)
-                    if mode == 'tell_in' then push_reply_target(sender, unescape(other_player))
-                    elseif mode == 'ls1' then push_ls_target(sender, 'ls1')
-                    elseif mode == 'ls2' then push_ls_target(sender, 'ls2') end
+                    other_player = unescape(other_player)
+                    if (now - ts) < MAX_AGE then
+                        -- Rebuild presence roster
+                        if sender ~= MY_NAME then
+                            if mode == 'login' or mode == 'heartbeat' then
+                                online_chars[sender] = ts
+                            elseif mode == 'logout' then
+                                online_chars[sender] = nil
+                            end
+                        end
+                        -- Rebuild activity lists
+                        if mode == 'tell_in' then push_reply_target(sender, other_player)
+                        elseif mode == 'ls1' then push_ls_target(sender, 'ls1')
+                        elseif mode == 'ls2' then push_ls_target(sender, 'ls2') end
+                    end
                 end
             end
+            prune_presence()
         end
     end
 end
 
 windower.register_event('load', function() windower.create_dir(SHARED_DIR) local p = windower.ffxi.get_player() if p then setup(p.name) end end)
 windower.register_event('login', function(name) setup(name) end)
-windower.register_event('unload', function() windower.send_command('unbind ' .. REPLY_BIND) windower.send_command('unbind ' .. LS_BIND) end)
+windower.register_event('logout', function()
+    if MY_NAME then
+        write_message('logout', MY_NAME, 'offline')
+        online_chars[MY_NAME] = nil
+    end
+end)
+windower.register_event('unload', function()
+    if MY_NAME then
+        write_message('logout', MY_NAME, 'offline')
+        online_chars[MY_NAME] = nil
+    end
+    windower.send_command('unbind ' .. REPLY_BIND)
+    windower.send_command('unbind ' .. LS_BIND)
+end)
