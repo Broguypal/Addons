@@ -31,8 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ]]
 
 _addon.name    = 'Hivemind'
-_addon.author  = 'Broguypal'
-_addon.version = '1.0'
+_addon.author  = 'Broguypal, Frodobald'
+_addon.version = '2.0'
 _addon.command = 'hivemind'
 
 local packets = require('packets')
@@ -41,130 +41,85 @@ local packets = require('packets')
 -- USER CONFIG — feel free to change these
 ----------------------------------------------------------------------
 local REPLY_BIND  = '!r'         -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
-local MAX_REPLY   = 6            -- max unique senders to cycle through
-local POLL_RATE   = 0.1          -- how often to check for new tells (in seconds)
+local LS_BIND     = '!l'         -- keybind for linkshell cycling (! = Alt, ^ = Ctrl, @ = Win)
+local MAX_REPLY   = 6            -- max unique targets to cycle through
+local POLL_RATE   = 0.1          -- how often to check for new messages (in seconds)
 local MAX_AGE     = 3600         -- purge messages older than 1 hour
 
 ----------------------------------------------------------------------
--- INTERNALS — do not edit below this line
+-- INTERNALS
 ----------------------------------------------------------------------
-local SHARED_DIR  = windower.windower_path .. 'addons/Hivemind/shared/'
-local LOG_FILE    = SHARED_DIR .. 'messages.log'
-local LOCK_SUFFIX = '.lock'
-local MY_NAME     = nil          -- filled on load
-local reply_list  = {}           -- ordered most-recent-first, up to MAX_REPLY
-local reply_index = 0            -- 0 = not cycling yet, 1..#reply_list = current position
+local SHARED_DIR     = windower.windower_path .. 'addons/Hivemind/shared/'
+local LOG_FILE       = SHARED_DIR .. 'messages.log'
+local LOCK_SUFFIX    = '.lock'
+local MY_NAME        = nil
+local reply_list     = {}           -- unique {char, sender} for tells
+local reply_index    = 0
+local ls_target_list = {}           -- unique {char, mode} for linkshells
+local ls_reply_index = 0
+local recent_ls_msgs = {}           -- deduplication {hash = timestamp}
+local debug_mode     = false
+local last_poll      = os.clock()
+
+local COLORS = { tell=4, ls1=6, ls2=213, info=167, debug=207 }
 
 ----------------------------------------------------------------------
--- HELPERS
+-- UTILS
 ----------------------------------------------------------------------
-local function cycle_reply()
-    if #reply_list == 0 then
-        windower.add_to_chat(167, '[Hivemind] No tells in memory to reply to.')
-        return 
-    end
+local function escape(s) return tostring(s):gsub('|', '<<PIPE>>') end
+local function unescape(s) return tostring(s):gsub('<<PIPE>>', '|') end
 
-    -- Advance the cycle index (1-based, wraps around)
-    reply_index = reply_index + 1
-    if reply_index > #reply_list then
-        reply_index = 1
-    end
-
-    local entry = reply_list[reply_index]
-    local text
-    if entry.char == MY_NAME then
-        text = '/tell ' .. entry.sender .. ' '
-    else
-        text = '//send ' .. entry.char .. ' /tell ' .. entry.sender .. ' '
-    end
-
-    -- keyboard_type opens chat, then set_input replaces with full text
-    windower.send_command('keyboard_type / ')
-    coroutine.schedule(function()
-        windower.chat.set_input(text)
-    end, 0.1)
-end
-
--- Simple file lock: create a .lock file, yield if it exists
 local function with_lock(func)
     local lock_path = LOG_FILE .. LOCK_SUFFIX
     local attempts = 0
-    while attempts < 20 do
+    while attempts < 30 do
         local lf = io.open(lock_path, 'r')
         if not lf then break end
         lf:close()
         attempts = attempts + 1
         coroutine.sleep(0.01)
     end
-    -- Grab lock
     local lf = io.open(lock_path, 'w')
-    if lf then
-        lf:write(tostring(os.clock()))
-        lf:close()
-    end
-    -- Do work
+    if lf then lf:write(tostring(os.clock())) lf:close() end
     local ok, err = pcall(func)
-    -- Release lock
     os.remove(lock_path)
-    if not ok then
-        windower.add_to_chat(167, '[Hivemind] Error: ' .. tostring(err))
-    end
-end
-
--- Escape pipe characters so they don't break our delimiter
-local function escape(s)
-    return s:gsub('|', '<<PIPE>>')
-end
-
-local function unescape(s)
-    return s:gsub('<<PIPE>>', '|')
+    if not ok then windower.add_to_chat(COLORS.info, '[Hivemind] Lock Error: ' .. tostring(err)) end
 end
 
 ----------------------------------------------------------------------
--- REPLY LIST MANAGEMENT
+-- TARGET MANAGEMENT
 ----------------------------------------------------------------------
--- Cap at MAX_REPLY entries.
-local function push_reply(char_name, sender_name)
-    -- Remove existing entry for this sender (if any)
+local function push_reply_target(char_name, sender_name)
     for i = #reply_list, 1, -1 do
-        if reply_list[i].sender == sender_name then
-            table.remove(reply_list, i)
+        if reply_list[i].sender == sender_name then table.remove(reply_list, i) end
+    end
+    table.insert(reply_list, 1, { char = char_name, sender = sender_name })
+    while #reply_list > MAX_REPLY do table.remove(reply_list) end
+    reply_index = 0
+end
+
+local function push_ls_target(char_name, mode)
+    for i = #ls_target_list, 1, -1 do
+        if ls_target_list[i].char == char_name and ls_target_list[i].mode == mode then
+            table.remove(ls_target_list, i)
         end
     end
-
-    -- Insert at front (most recent)
-    table.insert(reply_list, 1, { char = char_name, sender = sender_name })
-
-    -- Trim to cap
-    while #reply_list > MAX_REPLY do
-        table.remove(reply_list)
-    end
-
-    -- Reset cycle position so next Alt+/ starts from the newest
-    reply_index = 0
-end
-
--- Called when an outgoing tell is sent — reset cycle back to most recent
-local function reset_reply_cycle()
-    reply_index = 0
+    table.insert(ls_target_list, 1, { char = char_name, mode = mode })
+    while #ls_target_list > MAX_REPLY do table.remove(ls_target_list) end
+    ls_reply_index = 0
 end
 
 ----------------------------------------------------------------------
--- MESSAGE LOG  (format: timestamp|sender_char|direction|other_player|message\n)
+-- LOGGING
 ----------------------------------------------------------------------
-local last_read_pos = 0  -- byte offset we've read up to
+local last_read_pos = 0
 
-local function write_message(direction, other_player, message)
+local function write_message(mode, other_player, message)
+    if not MY_NAME or not mode or not other_player or not message or #message == 0 then return end
     with_lock(function()
         local f = io.open(LOG_FILE, 'a')
         if f then
-            local line = string.format('%d|%s|%s|%s|%s\n',
-                os.time(),
-                escape(MY_NAME),
-                direction,
-                escape(other_player),
-                escape(message))
-            f:write(line)
+            f:write(string.format('%d|%s|%s|%s|%s\n', os.time(), escape(MY_NAME), escape(mode), escape(other_player), escape(message)))
             f:close()
         end
     end)
@@ -175,7 +130,6 @@ local function read_new_messages()
     with_lock(function()
         local f = io.open(LOG_FILE, 'r')
         if not f then return end
-
         f:seek('set', last_read_pos)
         local new_data = f:read('*a')
         last_read_pos = f:seek()
@@ -185,20 +139,11 @@ local function read_new_messages()
 
         local now = os.time()
         for line in new_data:gmatch('[^\n]+') do
-            local ts, sender, direction, other_player, message = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|(.+)$')
+            local ts, sender, mode, other_player, message = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|(.+)$')
             if ts then
-                ts = tonumber(ts)
-                sender       = unescape(sender)
-                other_player = unescape(other_player)
-                message      = unescape(message)
-
+                ts, sender, mode, other_player, message = tonumber(ts), unescape(sender), unescape(mode), unescape(other_player), unescape(message)
                 if sender ~= MY_NAME and (now - ts) < MAX_AGE then
-                    table.insert(results, {
-                        sender       = sender,
-                        direction    = direction,
-                        other_player = other_player,
-                        message      = message,
-                    })
+                    table.insert(results, { sender=sender, mode=mode, other_player=other_player, message=message })
                 end
             end
         end
@@ -206,194 +151,177 @@ local function read_new_messages()
     return results
 end
 
--- Periodically purge the log so it doesn't grow forever
 local last_prune = os.time()
-local PRUNE_INTERVAL = 60
-
 local function maybe_prune()
-    if os.time() - last_prune < PRUNE_INTERVAL then return end
+    if os.time() - last_prune < 60 then return end
     last_prune = os.time()
-
     with_lock(function()
         local f = io.open(LOG_FILE, 'r')
         if not f then return end
         local content = f:read('*a')
         f:close()
-
-        local now = os.time()
-        local kept = {}
+        local now, kept = os.time(), {}
         for line in content:gmatch('[^\n]+') do
             local ts = line:match('^(%d+)|')
-            if ts and (now - tonumber(ts)) < MAX_AGE then
-                table.insert(kept, line)
-            end
+            if ts and (now - tonumber(ts)) < MAX_AGE then table.insert(kept, line) end
         end
-
         f = io.open(LOG_FILE, 'w')
-        if f then
-            f:write(table.concat(kept, '\n'))
-            if #kept > 0 then f:write('\n') end
-            f:close()
-        end
+        if f then f:write(table.concat(kept, '\n') .. (#kept > 0 and '\n' or '')) f:close() end
     end)
-
-    -- After purging, reset read position to end of new file
     local f = io.open(LOG_FILE, 'r')
-    if f then
-        f:seek('end')
-        last_read_pos = f:seek()
-        f:close()
-    end
+    if f then f:seek('end') last_read_pos = f:seek() f:close() end
 end
 
 ----------------------------------------------------------------------
--- DISPLAY
+-- DISPLAY & REPLIES
 ----------------------------------------------------------------------
--- Color 4 = tell color in default FFXI chat
-local TELL_COLOR = 4
+local function show_relayed_message(sender_char, mode, other_player, message)
+    local display, color
+    local hash = mode .. '|' .. other_player .. '|' .. message
+    local now = os.time()
 
-local function show_relayed_tell(sender_char, direction, other_player, message)
-    local display
-    if direction == 'out' then
-        -- Outgoing: show that your other character sent a tell
-        display = string.format('[%s] >> %s : %s', sender_char, other_player, message)
-    else
-        -- Incoming: show that your other character received a tell
-        display = string.format('[%s] %s >> %s', sender_char, other_player, message)
+    if recent_ls_msgs[hash] and (now - recent_ls_msgs[hash]) < 3 then return end
+    recent_ls_msgs[hash] = now
+
+    if mode == 'tell_out' then
+        display, color = string.format('[%s] >> %s : %s', sender_char, other_player, message), COLORS.tell
+    elseif mode == 'tell_in' then
+        display, color = string.format('[%s] %s >> %s', sender_char, other_player, message), COLORS.tell
+        push_reply_target(sender_char, other_player)
+    elseif mode == 'ls1' then
+        display, color = string.format('[%s][LS1] %s: %s', sender_char, other_player, message), COLORS.ls1
+        push_ls_target(sender_char, 'ls1')
+    elseif mode == 'ls2' then
+        display, color = string.format('[%s][LS2] %s: %s', sender_char, other_player, message), COLORS.ls2
+        push_ls_target(sender_char, 'ls2')
     end
-    windower.add_to_chat(TELL_COLOR, display)
+
+    if display then windower.add_to_chat(color, display) end
+end
+
+local function cycle_reply()
+    if #reply_list == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No tells in memory.') return end
+    reply_index = (reply_index % #reply_list) + 1
+    local entry = reply_list[reply_index]
+    local text = (entry.char == MY_NAME) and ('/tell ' .. entry.sender .. ' ') or ('//send ' .. entry.char .. ' /tell ' .. entry.sender .. ' ')
+    windower.send_command('keyboard_type / ')
+    coroutine.schedule(function() windower.chat.set_input(text) end, 0.1)
+end
+
+local function cycle_ls_reply()
+    if #ls_target_list == 0 then windower.add_to_chat(COLORS.info, '[Hivemind] No linkshells in memory.') return end
+    ls_reply_index = (ls_reply_index % #ls_target_list) + 1
+    local target = ls_target_list[ls_reply_index]
+    local slash = (target.mode == 'ls1') and '/l ' or '/l2 '
+    local text = (target.char == MY_NAME) and slash or ('//send ' .. target.char .. ' ' .. slash)
+    windower.send_command('keyboard_type / ')
+    coroutine.schedule(function() windower.chat.set_input(text) end, 0.1)
 end
 
 ----------------------------------------------------------------------
--- PACKET HOOK — capture incoming tells
+-- PACKETS
 ----------------------------------------------------------------------
 windower.register_event('incoming chunk', function(id, data)
-    if not MY_NAME then return end
+    if id == 0x017 and MY_NAME then
+        local p = packets.parse('incoming', data)
+        local mode = p['Mode'] or p['mode']
+        local sender = (p['Sender Name'] or p['sender_name'] or ''):gsub('%z', ''):trim()
+        local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
 
-    if id == 0x017 then
-        local parsed = packets.parse('incoming', data)
-        -- Mode 3 = /tell
-        if parsed and parsed['Mode'] == 3 then
-            local from_player = parsed['Sender Name'] or parsed['sender_name'] or 'Unknown'
-            local message     = parsed['Message']     or parsed['message']     or ''
+        if debug_mode and (mode == 3 or mode == 5 or mode == 27) then
+            windower.add_to_chat(COLORS.debug, string.format('[Hivemind Debug] Mode: %d Sender: %s Msg: %s', mode, sender, msg))
+        end
 
-            -- Clean up any auto-translate brackets or trailing bytes
-            message = message:gsub('%z', '')
-
-            -- Track for reply cycling
-            push_reply(MY_NAME, from_player)
-
-            write_message('in', from_player, message)
+        if mode == 3 then -- Tell Incoming
+            push_reply_target(MY_NAME, sender)
+            write_message('tell_in', sender, msg)
+        elseif mode == 5 then -- LS1
+            if sender == '' or sender == 'Unknown' then sender = MY_NAME end
+            push_ls_target(MY_NAME, 'ls1')
+            recent_ls_msgs['ls1|' .. sender .. '|' .. msg] = os.time()
+            write_message('ls1', sender, msg)
+        elseif mode == 27 then -- LS2
+            if sender == '' or sender == 'Unknown' then sender = MY_NAME end
+            push_ls_target(MY_NAME, 'ls2')
+            recent_ls_msgs['ls2|' .. sender .. '|' .. msg] = os.time()
+            write_message('ls2', sender, msg)
         end
     end
 end)
 
-----------------------------------------------------------------------
--- PACKET HOOK — capture outgoing tells (sent by this character)
-----------------------------------------------------------------------
 windower.register_event('outgoing chunk', function(id, data)
-    if not MY_NAME then return end
-
-    if id == 0xB6 then
-        local parsed = packets.parse('outgoing', data)
-        if parsed then
-            local target  = parsed['Target Name'] or parsed['target_name'] or 'Unknown'
-            local message = parsed['Message']     or parsed['message']     or ''
-
-            message = message:gsub('%z', '')
-
-            -- Reset cycle so next Alt+R starts from most recent sender
-            reset_reply_cycle()
-
-            write_message('out', target, message)
-        end
+    if id == 0xB6 and MY_NAME then
+        local p = packets.parse('outgoing', data)
+        local target = (p['Target Name'] or p['target_name'] or 'Unknown'):gsub('%z', ''):trim()
+        local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
+        reply_index = 0
+        write_message('tell_out', target, msg)
     end
 end)
 
 ----------------------------------------------------------------------
--- POLLING LOOP — check for messages from other instances
-----------------------------------------------------------------------
-local last_poll = os.clock()
-
-windower.register_event('prerender', function()
-    if not MY_NAME then return end
-
-    local now = os.clock()
-    if now - last_poll < POLL_RATE then return end
-    last_poll = now
-
-    local msgs = read_new_messages()
-    if msgs then
-        for _, m in ipairs(msgs) do
-            show_relayed_tell(m.sender, m.direction, m.other_player, m.message)
-            -- Track for reply cycling — only incoming tells
-            if m.direction == 'in' then
-                push_reply(m.sender, m.other_player)
-            end
-        end
-    end
-
-    maybe_prune()
-end)
-
-----------------------------------------------------------------------
--- REPLY — Alt+R cycles through the last N unique incoming senders
+-- COMMANDS & TEXT INTERCEPTION
 ----------------------------------------------------------------------
 windower.register_event('addon command', function(...)
     local args = {...}
-    if args[1] and args[1]:lower() == 'reply' then
-        cycle_reply()
+    if not args[1] then return end
+    local cmd = args[1]:lower()
+    if cmd == 'reply' then cycle_reply()
+    elseif cmd == 'lsreply' then cycle_ls_reply()
+    elseif cmd == 'debug' then debug_mode = not debug_mode windower.add_to_chat(COLORS.debug, '[Hivemind] Debug: ' .. (debug_mode and 'ON' or 'OFF'))
+    end
+end)
+
+windower.register_event('outgoing text', function(text, modified)
+    local trimmed = text:trim()
+    if #trimmed == 0 then return end
+    local cmd, rest = trimmed:match('^(/%S+)%s*(.*)$')
+    if not cmd then return end
+    cmd = cmd:lower()
+    rest = rest:trim()
+
+    if cmd == '/l' or cmd == '/linkshell' then
+        if #rest > 0 then write_message('ls1', MY_NAME, rest) end
+    elseif cmd == '/l2' or cmd == '/linkshell2' then
+        if #rest > 0 then write_message('ls2', MY_NAME, rest) end
     end
 end)
 
 ----------------------------------------------------------------------
--- INITIALIZATION - handling load, unload, and login events
+-- LOOP & INIT
 ----------------------------------------------------------------------
+windower.register_event('prerender', function()
+    local now = os.clock()
+    if not MY_NAME or (now - last_poll < POLL_RATE) then return end
+    last_poll = now
+    local msgs = read_new_messages()
+    if msgs then for _, m in ipairs(msgs) do show_relayed_message(m.sender, m.mode, m.other_player, m.message) end end
+    maybe_prune()
+end)
 
-windower.register_event('load', function()
-    windower.create_dir(SHARED_DIR)
+local function setup(name)
+    MY_NAME = name
     windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
-
-    -- Seed reply list from existing log (incoming tells only, within MAX_AGE)
+    windower.send_command('bind ' .. LS_BIND .. ' hivemind lsreply')
     local f = io.open(LOG_FILE, 'r')
     if f then
         local content = f:read('*a')
-        f:seek('end')
-        last_read_pos = f:seek()
-        f:close()
-
-        if content and #content > 0 then
+        f:seek('end') last_read_pos = f:seek() f:close()
+        if content then
             local now = os.time()
-            -- Parse all incoming tells to build the reply list in chronological order
             for line in content:gmatch('[^\n]+') do
-                local ts, sender, direction, other_player = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|')
-                if ts and direction == 'in' then
-                    ts = tonumber(ts)
-                    sender       = unescape(sender)
-                    other_player = unescape(other_player)
-                    if (now - ts) < MAX_AGE then
-                        push_reply(sender, other_player)
-                    end
+                local ts, sender, mode, other_player = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|')
+                if ts and (now - tonumber(ts)) < MAX_AGE then
+                    sender = unescape(sender)
+                    if mode == 'tell_in' then push_reply_target(sender, unescape(other_player))
+                    elseif mode == 'ls1' then push_ls_target(sender, 'ls1')
+                    elseif mode == 'ls2' then push_ls_target(sender, 'ls2') end
                 end
             end
         end
     end
-end)
-
-windower.register_event('unload', function()
-    windower.send_command('unbind ' .. REPLY_BIND)
-end)
-
-windower.register_event('login', function(name)
-    MY_NAME = name
-    windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
-    windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
-end)
-
--- Handle if already logged in when addon loads
-local player = windower.ffxi.get_player()
-if player then
-    MY_NAME = player.name
-    windower.send_command('bind ' .. REPLY_BIND .. ' hivemind reply')
-    windower.add_to_chat(207, '[Hivemind] Active for: ' .. MY_NAME)
 end
+
+windower.register_event('load', function() windower.create_dir(SHARED_DIR) local p = windower.ffxi.get_player() if p then setup(p.name) end end)
+windower.register_event('login', function(name) setup(name) end)
+windower.register_event('unload', function() windower.send_command('unbind ' .. REPLY_BIND) windower.send_command('unbind ' .. LS_BIND) end)
