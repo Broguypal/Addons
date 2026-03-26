@@ -58,10 +58,9 @@ local reply_index    = 0
 local ls_target_list = {}           -- unique {char, mode} for linkshells
 local ls_reply_index = 0
 local recent_ls_msgs = {}           -- deduplication {hash = timestamp}
-local debug_mode     = false
 local last_poll      = os.clock()
 
-local COLORS = { tell=4, ls1=6, ls2=213, info=167, debug=207 }
+local COLORS = { tell=4, ls1=6, ls2=213, info=167 }
 
 ----------------------------------------------------------------------
 -- UTILS
@@ -228,10 +227,6 @@ windower.register_event('incoming chunk', function(id, data)
         local sender = (p['Sender Name'] or p['sender_name'] or ''):gsub('%z', ''):trim()
         local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
 
-        if debug_mode and (mode == 3 or mode == 5 or mode == 27) then
-            windower.add_to_chat(COLORS.debug, string.format('[Hivemind Debug] Mode: %d Sender: %s Msg: %s', mode, sender, msg))
-        end
-
         if mode == 3 then -- Tell Incoming
             push_reply_target(MY_NAME, sender)
             write_message('tell_in', sender, msg)
@@ -268,7 +263,6 @@ windower.register_event('addon command', function(...)
     local cmd = args[1]:lower()
     if cmd == 'reply' then cycle_reply()
     elseif cmd == 'lsreply' then cycle_ls_reply()
-    elseif cmd == 'debug' then debug_mode = not debug_mode windower.add_to_chat(COLORS.debug, '[Hivemind] Debug: ' .. (debug_mode and 'ON' or 'OFF'))
     end
 end)
 
