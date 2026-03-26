@@ -62,8 +62,8 @@ local recent_ls_msgs      = {}      -- deduplication {hash = timestamp}
 local last_poll           = os.clock()
 
 -- Presence tracking — in-memory, driven by log entries
-local HEARTBEAT_INTERVAL  = 30      -- seconds between heartbeat log entries
-local PRESENCE_TIMEOUT    = 120     -- consider offline after 2 min without heartbeat
+local HEARTBEAT_INTERVAL  = 120      -- seconds between heartbeat log entries
+local PRESENCE_TIMEOUT    = 360     -- consider offline after 6 min without heartbeat
 local last_heartbeat      = 0
 local online_chars        = {}      -- { [char_name] = last_seen_timestamp }
 
