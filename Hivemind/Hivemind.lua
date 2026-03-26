@@ -93,7 +93,7 @@ local function with_lock(func)
 end
 
 ----------------------------------------------------------------------
--- PRESENCE TRACKING — log-based, no external files
+-- PRESENCE TRACKING
 ----------------------------------------------------------------------
 local function prune_presence()
     local now = os.time()
