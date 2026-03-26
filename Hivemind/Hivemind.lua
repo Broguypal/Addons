@@ -93,7 +93,7 @@ local function with_lock(func)
 end
 
 ----------------------------------------------------------------------
--- PRESENCE TRACKING
+-- PRESENCE TRACKING — log-based, no external files
 ----------------------------------------------------------------------
 local function prune_presence()
     local now = os.time()
@@ -424,9 +424,15 @@ windower.register_event('outgoing text', function(text, modified)
     rest = rest:trim()
 
     if cmd == '/l' or cmd == '/linkshell' then
-        if #rest > 0 then write_message('ls1', MY_NAME, rest) end
+        if #rest > 0 then
+            recent_ls_msgs['ls1|' .. MY_NAME .. '|' .. rest] = os.time()
+            write_message('ls1', MY_NAME, rest)
+        end
     elseif cmd == '/l2' or cmd == '/linkshell2' then
-        if #rest > 0 then write_message('ls2', MY_NAME, rest) end
+        if #rest > 0 then
+            recent_ls_msgs['ls2|' .. MY_NAME .. '|' .. rest] = os.time()
+            write_message('ls2', MY_NAME, rest)
+        end
     end
 end)
 
