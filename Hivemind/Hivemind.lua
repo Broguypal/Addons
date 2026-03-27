@@ -59,6 +59,7 @@ local reply_index         = 0
 local ls_target_list      = {}      -- unique {char, mode} for linkshells (activity-based priority)
 local ls_reply_index      = 0
 local recent_ls_msgs      = {}      -- deduplication {hash = timestamp}
+local pending_ls_relays   = {}      -- queued LS relays awaiting dedup check {expire, sender, mode, other_player, message}
 local last_poll           = os.clock()
 
 -- Presence tracking — in-memory, driven by log entries
@@ -196,6 +197,13 @@ local function read_new_messages()
     with_lock(function()
         local f = io.open(LOG_FILE, 'r')
         if not f then return end
+        -- If another instance pruned the file, it may be smaller than our last position.
+        -- Reset to current EOF — we may miss a handful of messages from the tiny window
+        -- between prune and detection, but this avoids replaying hours of old messages.
+        local file_size = f:seek('end')
+        if last_read_pos > file_size then
+            last_read_pos = file_size
+        end
         f:seek('set', last_read_pos)
         local new_data = f:read('*a')
         last_read_pos = f:seek()
@@ -271,22 +279,55 @@ local function show_relayed_message(sender_char, mode, other_player, message)
     local now = os.time()
 
     if recent_ls_msgs[hash] and (now - recent_ls_msgs[hash]) < 3 then return end
-    recent_ls_msgs[hash] = now
 
     if mode == 'tell_out' then
+        recent_ls_msgs[hash] = now
         display, color = string.format('[%s] >> %s : %s', sender_char, other_player, message), COLORS.tell
     elseif mode == 'tell_in' then
+        recent_ls_msgs[hash] = now
         display, color = string.format('[%s] %s >> %s', sender_char, other_player, message), COLORS.tell
         push_reply_target(sender_char, other_player)
-    elseif LS_ENABLED and mode == 'ls1' then
-        display, color = string.format('[%s][LS1] %s: %s', sender_char, other_player, message), COLORS.ls1
-        push_ls_target(sender_char, 'ls1')
-    elseif LS_ENABLED and mode == 'ls2' then
-        display, color = string.format('[%s][LS2] %s: %s', sender_char, other_player, message), COLORS.ls2
-        push_ls_target(sender_char, 'ls2')
+    elseif LS_ENABLED and (mode == 'ls1' or mode == 'ls2') then
+        -- Queue LS relays so the local incoming chunk has time to set the dedup hash
+        table.insert(pending_ls_relays, {
+            expire = os.clock() + 0.35,
+            sender = sender_char, mode = mode,
+            other_player = other_player, message = message,
+            hash = hash
+        })
+        return
     end
 
     if display then windower.add_to_chat(color, display) end
+end
+
+local function flush_pending_ls()
+    local now_clock = os.clock()
+    local now_time = os.time()
+    local i = 1
+    while i <= #pending_ls_relays do
+        local p = pending_ls_relays[i]
+        if now_clock >= p.expire then
+            table.remove(pending_ls_relays, i)
+            -- Re-check dedup after the delay
+            if not (recent_ls_msgs[p.hash] and (now_time - recent_ls_msgs[p.hash]) < 3) then
+                recent_ls_msgs[p.hash] = now_time
+                local display, color
+                if p.mode == 'ls1' then
+                    display = string.format('[%s][LS1] %s: %s', p.sender, p.other_player, p.message)
+                    color = COLORS.ls1
+                    push_ls_target(p.sender, 'ls1')
+                elseif p.mode == 'ls2' then
+                    display = string.format('[%s][LS2] %s: %s', p.sender, p.other_player, p.message)
+                    color = COLORS.ls2
+                    push_ls_target(p.sender, 'ls2')
+                end
+                if display then windower.add_to_chat(color, display) end
+            end
+        else
+            i = i + 1
+        end
+    end
 end
 
 local function cycle_reply()
@@ -368,6 +409,36 @@ end
 ----------------------------------------------------------------------
 -- PACKETS
 ----------------------------------------------------------------------
+windower.register_event('outgoing chunk', function(id, data)
+    if not MY_NAME then return end
+    if id == 0x0B6 then -- Outgoing Tell
+        local p = packets.parse('outgoing', data)
+        local target = (p['Target Name'] or p['target_name'] or 'Unknown'):gsub('%z', ''):trim()
+        local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
+        reply_index = 0
+        write_message('tell_out', target, msg)
+    elseif id == 0x0B5 and LS_ENABLED then -- Outgoing Speech (LS1/LS2/etc)
+        local p = packets.parse('outgoing', data)
+        local mode = p['Mode'] or p['mode']
+        local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
+        if #msg > 0 then
+            local ls_mode = (mode == 5 and 'ls1') or (mode == 27 and 'ls2') or nil
+            if ls_mode then
+                local hash = ls_mode .. '|' .. MY_NAME .. '|' .. msg
+                push_ls_target(MY_NAME, ls_mode)
+                recent_ls_msgs[hash] = os.time()
+                write_message(ls_mode, MY_NAME, msg)
+            end
+        end
+    end
+end)
+
+----------------------------------------------------------------------
+-- 0x017 Incoming Chat — OTHER PLAYERS' LS messages + dedup for own echo
+--   • Other players: sets dedup hash + writes to log for relay
+--   • Own echo: sets dedup hash only (0x0B5 already wrote to log);
+--     if 0x0B5 somehow didn't fire, falls back to writing
+----------------------------------------------------------------------
 windower.register_event('incoming chunk', function(id, data)
     if id == 0x017 and MY_NAME then
         local p = packets.parse('incoming', data)
@@ -378,32 +449,30 @@ windower.register_event('incoming chunk', function(id, data)
         if mode == 3 then -- Tell Incoming
             push_reply_target(MY_NAME, sender)
             write_message('tell_in', sender, msg)
-        elseif LS_ENABLED and mode == 5 then -- LS1
+        elseif LS_ENABLED and (mode == 5 or mode == 27) then
+            local ls_mode = (mode == 5) and 'ls1' or 'ls2'
             if sender == '' or sender == 'Unknown' then sender = MY_NAME end
-            push_ls_target(MY_NAME, 'ls1')
-            recent_ls_msgs['ls1|' .. sender .. '|' .. msg] = os.time()
-            write_message('ls1', sender, msg)
-        elseif LS_ENABLED and mode == 27 then -- LS2
-            if sender == '' or sender == 'Unknown' then sender = MY_NAME end
-            push_ls_target(MY_NAME, 'ls2')
-            recent_ls_msgs['ls2|' .. sender .. '|' .. msg] = os.time()
-            write_message('ls2', sender, msg)
+            local hash = ls_mode .. '|' .. sender .. '|' .. msg
+
+            push_ls_target(MY_NAME, ls_mode)
+
+            if sender ~= MY_NAME then
+                recent_ls_msgs[hash] = os.time()
+                write_message(ls_mode, sender, msg)
+            else
+                if not recent_ls_msgs[hash] then
+                    recent_ls_msgs[hash] = os.time()
+                    write_message(ls_mode, MY_NAME, msg)
+                else
+                    recent_ls_msgs[hash] = os.time()
+                end
+            end
         end
     end
 end)
 
-windower.register_event('outgoing chunk', function(id, data)
-    if id == 0xB6 and MY_NAME then
-        local p = packets.parse('outgoing', data)
-        local target = (p['Target Name'] or p['target_name'] or 'Unknown'):gsub('%z', ''):trim()
-        local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
-        reply_index = 0
-        write_message('tell_out', target, msg)
-    end
-end)
-
 ----------------------------------------------------------------------
--- COMMANDS & TEXT INTERCEPTION
+-- COMMANDS
 ----------------------------------------------------------------------
 windower.register_event('addon command', function(...)
     local args = {...}
@@ -414,33 +483,12 @@ windower.register_event('addon command', function(...)
     end
 end)
 
-windower.register_event('outgoing text', function(text, modified)
-    if not LS_ENABLED then return end
-    local trimmed = text:trim()
-    if #trimmed == 0 then return end
-    local cmd, rest = trimmed:match('^(/%S+)%s*(.*)$')
-    if not cmd then return end
-    cmd = cmd:lower()
-    rest = rest:trim()
-
-    if cmd == '/l' or cmd == '/linkshell' then
-        if #rest > 0 then
-            recent_ls_msgs['ls1|' .. MY_NAME .. '|' .. rest] = os.time()
-            write_message('ls1', MY_NAME, rest)
-        end
-    elseif cmd == '/l2' or cmd == '/linkshell2' then
-        if #rest > 0 then
-            recent_ls_msgs['ls2|' .. MY_NAME .. '|' .. rest] = os.time()
-            write_message('ls2', MY_NAME, rest)
-        end
-    end
-end)
-
 ----------------------------------------------------------------------
 -- LOOP & INIT
 ----------------------------------------------------------------------
 windower.register_event('prerender', function()
     local now = os.clock()
+    flush_pending_ls()
     if not MY_NAME or (now - last_poll < POLL_RATE) then return end
     last_poll = now
     local msgs = read_new_messages()
