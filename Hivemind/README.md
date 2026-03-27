@@ -28,7 +28,7 @@ Linkshell 1 and Linkshell 2 messages are shared across all characters, including
 
 If multiple characters are in the same linkshell, built-in deduplication prevents the same message from appearing more than once.
 
-Linkshell monitoring can be disabled entirely by setting `LS_ENABLED = false` in the config section.
+Linkshell monitoring can be toggled per character with `//hivemind linkshell off` (see [Commands](#commands) below).
 
 ## Replying to tells
 
@@ -39,8 +39,6 @@ Press **Alt+R** from any character window. The chat box opens with the reply pre
 
 Repeated presses of **Alt+R** cycle through the last 12 unique players who messaged you. Only characters that are currently online are included in the cycle.
 
-Cross-character replies require the **Send** addon.
-
 ## Replying to linkshells
 
 Press **Alt+L** from any character window. The chat box opens with the linkshell command pre-filled:
@@ -50,22 +48,42 @@ Press **Alt+L** from any character window. The chat box opens with the linkshell
 
 Repeated presses of **Alt+L** cycle through all online characters, with `/l` and `/l2` as separate entries for each.
 
-Note: The cycle prioritises the linkshell where someone last spoke. For example, if someone talks in CharC's LS2, the first press of Alt+L gives you `//send CharC /l2`. Subsequent presses cycle through the remaining characters, starting with the one you're currently on.
+Cross-character replies require the **Send** addon.
+
+### Cycling order
+
+The cycle prioritises the linkshell where someone last spoke. For example, if someone talks in CharC's LS2, the first press of Alt+L gives you `//send CharC /l2`. Subsequent presses cycle through the remaining characters, starting with the one you're currently on.
+
+If nobody has spoken yet, the default order is your current character first (`/l`, `/l2`), then other online characters.
 
 Cross-character linkshell messages require the **Send** addon.
 
+## Commands
+
+| Command | Description |
+|---|---|
+| `//hivemind linkshell on` | Enable linkshell monitoring (saved per character) |
+| `//hivemind linkshell off` | Disable linkshell monitoring (saved per character) |
+| `//hivemind linkshell` | Show current linkshell monitoring status |
+
 ## Configuration
 
-To change keybinds or other settings, open `Hivemind.lua` and edit the variables near the top of the file:
+Settings are managed by Windower's config library and saved per character. Default values can be changed by editing the `defaults` table near the top of `Hivemind.lua`:
 
 ```lua
-local REPLY_BIND  = '!r'         -- keybind for tell reply (! = Alt, ^ = Ctrl, @ = Win)
-local LS_BIND     = '!l'         -- keybind for linkshell reply
-local MAX_REPLY   = 12           -- max unique targets to cycle through
-local POLL_RATE   = 0.1          -- how often to check for new messages (in seconds)
-local MAX_AGE     = 3600         -- purge messages older than 1 hour
-local LS_ENABLED  = true         -- set to false to disable linkshell monitoring
+local defaults = {
+    reply_bind          = '!r',      -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
+    ls_bind             = '!l',      -- keybind for linkshell cycling (! = Alt, ^ = Ctrl, @ = Win)
+    max_reply           = 12,        -- max unique targets to cycle through
+    poll_rate           = 0.1,       -- how often to check for new messages (in seconds)
+    max_age             = 3600,      -- purge messages older than 1 hour
+    heartbeat_interval  = 120,       -- seconds between heartbeat log entries
+    presence_timeout    = 360,       -- consider offline after 6 min without heartbeat
+    ls_enabled          = true,      -- toggle with: //hivemind linkshell [on|off]
+}
 ```
+
+Per-character overrides are stored automatically in `Hivemind/data/settings.xml`.
 
 ## Install
 
