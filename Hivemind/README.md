@@ -3,9 +3,9 @@
 A Windower 4 addon that relays /tells and linkshell chat across all your multiboxed characters.
 It also lets you quickly reply from any character using the **Send** addon.
 
-## What it does
+# What it does
 
-### Tells
+## Tells
 When any of your characters receives a /tell, every other character running Hivemind will see it in their chat log:
 
 ```
@@ -18,7 +18,18 @@ Outgoing tells are also shared:
 [CharacterName] >> TargetPlayer : message
 ```
 
-### Linkshell chat
+### Replying to tells
+
+Press **Alt+R** from any character window. The chat box opens with the reply pre-filled:
+
+- If the tell was received on the current character: `/tell PlayerName `
+- If received on a different character: `//send CharName /tell PlayerName `
+
+Repeated presses of **Alt+R** cycle through the last 12 unique players who messaged you. Only characters that are currently online are included in the cycle.
+
+Cross-character replies require the **Send** addon.
+
+## Linkshell chat
 Linkshell 1 and Linkshell 2 messages are shared across all characters, including messages you send yourself. They appear as:
 
 ```
@@ -30,16 +41,7 @@ If multiple characters are in the same linkshell, built-in deduplication prevent
 
 Linkshell monitoring can be toggled per character with `//hivemind linkshell off` (see [Commands](#commands) below).
 
-## Replying to tells
-
-Press **Alt+R** from any character window. The chat box opens with the reply pre-filled:
-
-- If the tell was received on the current character: `/tell PlayerName `
-- If received on a different character: `//send CharName /tell PlayerName `
-
-Repeated presses of **Alt+R** cycle through the last 12 unique players who messaged you. Only characters that are currently online are included in the cycle.
-
-## Replying to linkshells
+### Replying to linkshells
 
 Press **Alt+L** from any character window. The chat box opens with the linkshell command pre-filled:
 
@@ -47,16 +49,6 @@ Press **Alt+L** from any character window. The chat box opens with the linkshell
 - If it's a different character: `//send CharName /l ` or `//send CharName /l2 `
 
 Repeated presses of **Alt+L** cycle through all online characters, with `/l` and `/l2` as separate entries for each.
-
-Cross-character replies require the **Send** addon.
-
-### Cycling order
-
-The cycle prioritises the linkshell where someone last spoke. For example, if someone talks in CharC's LS2, the first press of Alt+L gives you `//send CharC /l2`. Subsequent presses cycle through the remaining characters, starting with the one you're currently on.
-
-If nobody has spoken yet, the default order is your current character first (`/l`, `/l2`), then other online characters.
-
-Cross-character linkshell messages require the **Send** addon.
 
 ## Commands
 
@@ -82,8 +74,6 @@ local defaults = {
     ls_enabled          = true,      -- toggle with: //hivemind linkshell [on|off]
 }
 ```
-
-Per-character overrides are stored automatically in `Hivemind/data/settings.xml`.
 
 ## Install
 
