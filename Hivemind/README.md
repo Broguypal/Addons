@@ -48,13 +48,15 @@ Press **Alt+L** from any character window. The chat box opens with the linkshell
 
 Repeated presses of **Alt+L** cycle through all online characters, with `/l` and `/l2` as separate entries for each.
 
+Cross-character replies require the **Send** addon.
+
 ### Cycling order
 
 The cycle prioritises the linkshell where someone last spoke. For example, if someone talks in CharC's LS2, the first press of Alt+L gives you `//send CharC /l2`. Subsequent presses cycle through the remaining characters, starting with the one you're currently on.
 
 If nobody has spoken yet, the default order is your current character first (`/l`, `/l2`), then other online characters.
 
-Cross-character replies require the **Send** addon.
+Cross-character linkshell messages require the **Send** addon.
 
 ## Configuration
 
