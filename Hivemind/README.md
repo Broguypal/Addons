@@ -3,8 +3,6 @@
 A Windower 4 addon that relays /tells and linkshell chat across all your multiboxed characters.
 It also lets you quickly reply from any character using the **Send** addon.
 
-# What it does
-
 ## Tells
 When any of your characters receives a /tell, every other character running Hivemind will see it in their chat log:
 
