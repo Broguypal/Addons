@@ -52,7 +52,7 @@ Repeated presses of **Alt+L** cycle through all online characters, with `/l` and
 
 The cycle prioritises the linkshell where someone last spoke. For example, if someone talks in CharC's LS2, the first press of Alt+L gives you `//send CharC /l2`. Subsequent presses cycle through the remaining characters, starting with the one you're currently on.
 
-If nobody has spoken yet, the default order is your current character first (`/l`, `/l2`), then other online characters in the order they logged in.
+If nobody has spoken yet, the default order is your current character first (`/l`, `/l2`), then other online characters.
 
 Cross-character replies require the **Send** addon.
 
