@@ -48,6 +48,8 @@ Press **Alt+L** from any character window. The chat box opens with the linkshell
 
 Repeated presses of **Alt+L** cycle through all online characters, with `/l` and `/l2` as separate entries for each.
 
+Cross-character linkshell messages require the **Send** addon.
+
 ## Commands
 
 | Command | Description |
