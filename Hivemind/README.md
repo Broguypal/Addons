@@ -65,9 +65,7 @@ local defaults = {
     reply_bind          = '!r',      -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
     ls_bind             = '!l',      -- keybind for linkshell cycling (! = Alt, ^ = Ctrl, @ = Win)
     max_reply           = 12,        -- max unique targets to cycle through
-    poll_rate           = 0.1,       -- how often to check for new messages (in seconds)
-    max_age             = 3600,      -- purge messages older than 1 hour
-    heartbeat_interval  = 120,       -- seconds between heartbeat log entries
+    heartbeat_interval  = 120,       -- seconds between heartbeat broadcasts
     presence_timeout    = 360,       -- consider offline after 6 min without heartbeat
     ls_enabled          = true,      -- toggle with: //hivemind linkshell [on|off]
 }
