@@ -32,22 +32,20 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal + Frodobald'
-_addon.version = '2.0'
+_addon.version = '1.0'
 _addon.command = 'hivemind'
 
 local packets = require('packets')
 local config  = require('config')
 
 ----------------------------------------------------------------------
--- USER CONFIG 
+-- USER CONFIG
 ----------------------------------------------------------------------
 local defaults = {
     reply_bind          = '!r',      -- keybind for reply cycling (! = Alt, ^ = Ctrl, @ = Win)
     ls_bind             = '!l',      -- keybind for linkshell cycling (! = Alt, ^ = Ctrl, @ = Win)
     max_reply           = 12,        -- max unique targets to cycle through
-    poll_rate           = 0.1,       -- how often to check for new messages (in seconds)
-    max_age             = 3600,      -- purge messages older than 1 hour
-    heartbeat_interval  = 120,       -- seconds between heartbeat log entries
+    heartbeat_interval  = 120,       -- seconds between heartbeat broadcasts
     presence_timeout    = 360,       -- consider offline after 6 min without heartbeat
     ls_enabled          = true,      -- toggle with: //hivemind linkshell [on|off]
 }
@@ -56,19 +54,13 @@ local settings = config.load(defaults)
 ----------------------------------------------------------------------
 -- INTERNALS
 ----------------------------------------------------------------------
-local SHARED_DIR          = windower.windower_path .. 'addons/Hivemind/shared/'
-local LOG_FILE            = SHARED_DIR .. 'messages.log'
-local LOCK_SUFFIX         = '.lock'
 local MY_NAME             = nil
 local reply_list          = {}      -- unique {char, sender} for tells
 local reply_index         = 0
 local ls_target_list      = {}      -- unique {char, mode} for linkshells (activity-based priority)
 local ls_reply_index      = 0
 local recent_ls_msgs      = {}      -- deduplication {hash = timestamp}
-local pending_ls_relays   = {}      -- queued LS relays awaiting dedup check {deadline, sender, mode, other_player, message, hash}
-local last_poll           = os.clock()
-
--- Presence tracking
+local pending_ls_relays   = {}      -- queued LS relays awaiting dedup check
 local last_heartbeat      = 0
 local online_chars        = {}      -- { [char_name] = last_seen_timestamp }
 
@@ -80,21 +72,24 @@ local COLORS = { tell=4, ls1=6, ls2=213, info=167 }
 local function escape(s) return tostring(s):gsub('|', '<<PIPE>>') end
 local function unescape(s) return tostring(s):gsub('<<PIPE>>', '|') end
 
-local function with_lock(func)
-    local lock_path = LOG_FILE .. LOCK_SUFFIX
-    local attempts = 0
-    while attempts < 30 do
-        local lf = io.open(lock_path, 'r')
-        if not lf then break end
-        lf:close()
-        attempts = attempts + 1
-        coroutine.sleep(0.01)
-    end
-    local lf = io.open(lock_path, 'w')
-    if lf then lf:write(tostring(os.clock())) lf:close() end
-    local ok, err = pcall(func)
-    os.remove(lock_path)
-    if not ok then windower.add_to_chat(COLORS.info, '[Hivemind] Lock Error: ' .. tostring(err)) end
+----------------------------------------------------------------------
+-- IPC
+--
+-- Message format: sender_char|mode|other_player|message
+--
+-- mode values:
+--   tell_in    = incoming tell
+--   tell_out   = outgoing tell
+--   ls1        = linkshell 1 message
+--   ls2        = linkshell 2 message
+--   login      = character came online
+--   heartbeat  = presence keepalive
+--   logout     = character went offline
+----------------------------------------------------------------------
+local function broadcast(mode, other_player, message)
+    if not MY_NAME or not mode or not other_player or not message or #message == 0 then return end
+    local ipc_msg = string.format('%s|%s|%s|%s', escape(MY_NAME), escape(mode), escape(other_player), escape(message))
+    windower.send_ipc_message(ipc_msg)
 end
 
 ----------------------------------------------------------------------
@@ -158,118 +153,6 @@ local function push_ls_target(char_name, mode)
     table.insert(ls_target_list, 1, { char = char_name, mode = mode })
     while #ls_target_list > settings.max_reply do table.remove(ls_target_list) end
     ls_reply_index = 0
-end
-
-----------------------------------------------------------------------
--- LOGGING
---
--- Log format: timestamp|sender_char|mode|other_player|message
---
--- mode values:
---   tell_in    = incoming tell
---   tell_out   = outgoing tell
---   ls1        = linkshell 1 message
---   ls2        = linkshell 2 message
---   login      = character came online
---   heartbeat  = presence keepalive
---   logout     = character went offline
-----------------------------------------------------------------------
-local last_read_pos = 0
-
-local function write_message(mode, other_player, message)
-    if not MY_NAME or not mode or not other_player or not message or #message == 0 then return end
-    with_lock(function()
-        local f = io.open(LOG_FILE, 'a')
-        if f then
-            f:write(string.format('%d|%s|%s|%s|%s\n', os.time(), escape(MY_NAME), escape(mode), escape(other_player), escape(message)))
-            f:close()
-        end
-    end)
-end
-
-local function write_heartbeat()
-    local now = os.time()
-    if now - last_heartbeat < settings.heartbeat_interval then return end
-    last_heartbeat = now
-    online_chars[MY_NAME] = now
-    write_message('heartbeat', MY_NAME, 'alive')
-end
-
-local function read_new_messages()
-    local results = {}
-    local seen_ls_batch = {}
-    with_lock(function()
-        local f = io.open(LOG_FILE, 'r')
-        if not f then return end
-		
-        local file_size = f:seek('end')
-        if last_read_pos > file_size then
-            last_read_pos = file_size
-        end
-        f:seek('set', last_read_pos)
-        local new_data = f:read('*a')
-        last_read_pos = f:seek()
-        f:close()
-
-        if not new_data or #new_data == 0 then return end
-
-        local now = os.time()
-        for line in new_data:gmatch('[^\n]+') do
-            local ts, sender, mode, other_player, message = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|(.+)$')
-            if ts then
-                ts, sender, mode, other_player, message = tonumber(ts), unescape(sender), unescape(mode), unescape(other_player), unescape(message)
-
-                -- Process presence entries from other characters
-                if sender ~= MY_NAME then
-                    if mode == 'login' or mode == 'heartbeat' then
-                        online_chars[sender] = ts
-                    elseif mode == 'logout' then
-                        online_chars[sender] = nil
-                    end
-                end
-
-                -- Only relay actual messages from other chars
-                if sender ~= MY_NAME and (now - ts) < settings.max_age then
-                    if mode == 'tell_in' or mode == 'tell_out' then
-                        table.insert(results, { sender=sender, mode=mode, other_player=other_player, message=message })
-                    elseif mode == 'ls1' or mode == 'ls2' then
-                        local ls_hash = mode .. '|' .. other_player .. '|' .. message
-                        if not seen_ls_batch[ls_hash] then
-                            seen_ls_batch[ls_hash] = true
-                            table.insert(results, { sender=sender, mode=mode, other_player=other_player, message=message })
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    return results
-end
-
-local last_prune = os.time()
-local function maybe_prune()
-    if os.time() - last_prune < 60 then return end
-    last_prune = os.time()
-    local now = os.time()
-    for hash, ts in pairs(recent_ls_msgs) do
-        if (now - ts) > 10 then recent_ls_msgs[hash] = nil end
-    end
-    prune_presence()
-    with_lock(function()
-        local f = io.open(LOG_FILE, 'r')
-        if not f then return end
-        local content = f:read('*a')
-        f:close()
-        local kept = {}
-        for line in content:gmatch('[^\n]+') do
-            local ts = line:match('^(%d+)|')
-            if ts and (now - tonumber(ts)) < settings.max_age then table.insert(kept, line) end
-        end
-        f = io.open(LOG_FILE, 'w')
-        if f then f:write(table.concat(kept, '\n') .. (#kept > 0 and '\n' or '')) f:close() end
-    end)
-    local f = io.open(LOG_FILE, 'r')
-    if f then f:seek('end') last_read_pos = f:seek() f:close() end
 end
 
 ----------------------------------------------------------------------
@@ -413,6 +296,38 @@ local function cycle_ls_reply()
 end
 
 ----------------------------------------------------------------------
+-- IPC MESSAGE HANDLER
+----------------------------------------------------------------------
+windower.register_event('ipc message', function(raw)
+    if not MY_NAME then return end
+
+    local sender, mode, other_player, message = raw:match('^([^|]*)|([^|]*)|([^|]*)|(.+)$')
+    if not sender then return end
+    sender, mode, other_player, message = unescape(sender), unescape(mode), unescape(other_player), unescape(message)
+
+    -- Ignore our own broadcasts
+    if sender == MY_NAME then return end
+
+    -- Process presence
+    if mode == 'login' or mode == 'heartbeat' then
+        online_chars[sender] = os.time()
+        -- If they just logged in, respond so they learn about us immediately
+        if mode == 'login' then
+            broadcast('heartbeat', MY_NAME, 'alive')
+        end
+        return
+    elseif mode == 'logout' then
+        online_chars[sender] = nil
+        return
+    end
+
+    -- Relay actual messages
+    if mode == 'tell_in' or mode == 'tell_out' or mode == 'ls1' or mode == 'ls2' then
+        show_relayed_message(sender, mode, other_player, message)
+    end
+end)
+
+----------------------------------------------------------------------
 -- 0x0B6 Outgoing Chat
 ----------------------------------------------------------------------
 windower.register_event('outgoing chunk', function(id, data)
@@ -422,7 +337,7 @@ windower.register_event('outgoing chunk', function(id, data)
         local target = (p['Target Name'] or p['target_name'] or 'Unknown'):gsub('%z', ''):trim()
         local msg = (p['Message'] or p['message'] or ''):gsub('%z', ''):trim()
         reply_index = 0
-        write_message('tell_out', target, msg)
+        broadcast('tell_out', target, msg)
     elseif id == 0x0B5 and settings.ls_enabled then -- Outgoing Speech (LS1/LS2/etc)
         local p = packets.parse('outgoing', data)
         local mode = p['Mode'] or p['mode']
@@ -433,14 +348,14 @@ windower.register_event('outgoing chunk', function(id, data)
                 local hash = ls_mode .. '|' .. MY_NAME .. '|' .. msg
                 push_ls_target(MY_NAME, ls_mode)
                 recent_ls_msgs[hash] = os.time()
-                write_message(ls_mode, MY_NAME, msg)
+                broadcast(ls_mode, MY_NAME, msg)
             end
         end
     end
 end)
 
 ----------------------------------------------------------------------
--- 0x017 Incoming Chat 
+-- 0x017 Incoming Chat
 ----------------------------------------------------------------------
 windower.register_event('incoming chunk', function(id, data)
     if id == 0x017 and MY_NAME then
@@ -451,7 +366,7 @@ windower.register_event('incoming chunk', function(id, data)
 
         if mode == 3 then -- Tell Incoming
             push_reply_target(MY_NAME, sender)
-            write_message('tell_in', sender, msg)
+            broadcast('tell_in', sender, msg)
         elseif settings.ls_enabled and (mode == 5 or mode == 27) then
             local ls_mode = (mode == 5) and 'ls1' or 'ls2'
             if sender == '' or sender == 'Unknown' then sender = MY_NAME end
@@ -461,11 +376,11 @@ windower.register_event('incoming chunk', function(id, data)
 
             if sender ~= MY_NAME then
                 recent_ls_msgs[hash] = os.time()
-                write_message(ls_mode, sender, msg)
+                broadcast(ls_mode, sender, msg)
             else
                 if not recent_ls_msgs[hash] then
                     recent_ls_msgs[hash] = os.time()
-                    write_message(ls_mode, MY_NAME, msg)
+                    broadcast(ls_mode, MY_NAME, msg)
                 else
                     recent_ls_msgs[hash] = os.time()
                 end
@@ -509,19 +424,43 @@ end)
 ----------------------------------------------------------------------
 -- LOOP & INIT
 ----------------------------------------------------------------------
+local last_prune = os.time()
+
 windower.register_event('prerender', function()
-    local now = os.clock()
     flush_pending_ls()
-    if not MY_NAME or (now - last_poll < settings.poll_rate) then return end
-    last_poll = now
-    local msgs = read_new_messages()
-    if msgs then for _, m in ipairs(msgs) do show_relayed_message(m.sender, m.mode, m.other_player, m.message) end end
-    maybe_prune()
-    write_heartbeat()
+
+    if not MY_NAME then return end
+
+    -- Periodic maintenance
+    local now = os.time()
+    if now - last_prune >= 60 then
+        last_prune = now
+        -- Prune stale dedup entries
+        for hash, ts in pairs(recent_ls_msgs) do
+            if (now - ts) > 10 then recent_ls_msgs[hash] = nil end
+        end
+        prune_presence()
+    end
+
+    -- Heartbeat
+    if now - last_heartbeat >= settings.heartbeat_interval then
+        last_heartbeat = now
+        online_chars[MY_NAME] = now
+        broadcast('heartbeat', MY_NAME, 'alive')
+    end
 end)
 
 local function setup(name)
     MY_NAME = name
+
+    -- Clear stale state from any previous character session
+    reply_list          = {}
+    reply_index         = 0
+    ls_target_list      = {}
+    ls_reply_index      = 0
+    recent_ls_msgs      = {}
+    pending_ls_relays   = {}
+
     windower.send_command('bind ' .. settings.reply_bind .. ' hivemind reply')
     windower.send_command('bind ' .. settings.ls_bind .. ' hivemind lsreply')
 
@@ -529,54 +468,28 @@ local function setup(name)
     online_chars[MY_NAME] = os.time()
     last_heartbeat = os.time()
 
-    -- Log the login so other characters see it
-    write_message('login', MY_NAME, 'online')
-
-    -- Seed from existing log
-    local f = io.open(LOG_FILE, 'r')
-    if f then
-        local content = f:read('*a')
-        f:seek('end') last_read_pos = f:seek() f:close()
-        if content then
-            local now = os.time()
-            for line in content:gmatch('[^\n]+') do
-                local ts, sender, mode, other_player = line:match('^(%d+)|([^|]*)|([^|]*)|([^|]*)|')
-                if ts then
-                    ts = tonumber(ts)
-                    sender = unescape(sender)
-                    other_player = unescape(other_player)
-                    if (now - ts) < settings.max_age then
-                        -- Rebuild presence roster
-                        if sender ~= MY_NAME then
-                            if mode == 'login' or mode == 'heartbeat' then
-                                online_chars[sender] = ts
-                            elseif mode == 'logout' then
-                                online_chars[sender] = nil
-                            end
-                        end
-                        -- Rebuild activity lists
-                        if mode == 'tell_in' then push_reply_target(sender, other_player)
-                        elseif mode == 'ls1' then push_ls_target(sender, 'ls1')
-                        elseif mode == 'ls2' then push_ls_target(sender, 'ls2') end
-                    end
-                end
-            end
-            prune_presence()
-        end
-    end
+    -- Broadcast login so other characters discover us
+    broadcast('login', MY_NAME, 'online')
 end
 
-windower.register_event('load', function() windower.create_dir(SHARED_DIR) local p = windower.ffxi.get_player() if p then setup(p.name) end end)
+windower.register_event('load', function()
+    local p = windower.ffxi.get_player()
+    if p then setup(p.name) end
+end)
+
 windower.register_event('login', function(name) setup(name) end)
+
 windower.register_event('logout', function()
     if MY_NAME then
-        write_message('logout', MY_NAME, 'offline')
+        broadcast('logout', MY_NAME, 'offline')
         online_chars[MY_NAME] = nil
+        MY_NAME = nil
     end
 end)
+
 windower.register_event('unload', function()
     if MY_NAME then
-        write_message('logout', MY_NAME, 'offline')
+        broadcast('logout', MY_NAME, 'offline')
         online_chars[MY_NAME] = nil
     end
     windower.send_command('unbind ' .. settings.reply_bind)
