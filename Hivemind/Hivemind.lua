@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal + Frodobald'
-_addon.version = '1.0'
+_addon.version = '1.0.1'
 _addon.command = 'hivemind'
 
 local packets = require('packets')
@@ -63,6 +63,7 @@ local recent_ls_msgs      = {}      -- deduplication {hash = timestamp}
 local pending_ls_relays   = {}      -- queued LS relays awaiting dedup check
 local last_heartbeat      = 0
 local online_chars        = {}      -- { [char_name] = last_seen_timestamp }
+local heartbeat_reply_pending = false
 
 local COLORS = { tell=4, ls1=6, ls2=213, info=167 }
 
@@ -311,9 +312,12 @@ windower.register_event('ipc message', function(raw)
     -- Process presence
     if mode == 'login' or mode == 'heartbeat' then
         online_chars[sender] = os.time()
-        -- If they just logged in, respond so they learn about us immediately
-        if mode == 'login' then
-            broadcast('heartbeat', MY_NAME, 'alive')
+        if mode == 'login' and not heartbeat_reply_pending then
+            heartbeat_reply_pending = true
+            coroutine.schedule(function()
+                broadcast('heartbeat', MY_NAME, 'alive')
+                heartbeat_reply_pending = false
+            end, 0.5)
         end
         return
     elseif mode == 'logout' then
