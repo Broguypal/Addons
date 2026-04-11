@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal + Frodobald'
-_addon.version = '1.0.1'
+_addon.version = '1.0.2'
 _addon.command = 'hivemind'
 
 local packets = require('packets')
@@ -98,11 +98,13 @@ end
 ----------------------------------------------------------------------
 local function prune_presence()
     local now = os.time()
+    local fresh = {}
     for name, last_seen in pairs(online_chars) do
-        if name ~= MY_NAME and (now - last_seen) >= settings.presence_timeout then
-            online_chars[name] = nil
+        if name == MY_NAME or (now - last_seen) < settings.presence_timeout then
+            fresh[name] = last_seen
         end
     end
+    online_chars = fresh
 end
 
 local function get_online_ls_chars()
@@ -440,9 +442,11 @@ windower.register_event('prerender', function()
     if now - last_prune >= 60 then
         last_prune = now
         -- Prune stale dedup entries
-        for hash, ts in pairs(recent_ls_msgs) do
-            if (now - ts) > 10 then recent_ls_msgs[hash] = nil end
-        end
+		local fresh = {}
+		for hash, ts in pairs(recent_ls_msgs) do
+			if (now - ts) <= 10 then fresh[hash] = ts end
+		end
+		recent_ls_msgs = fresh
         prune_presence()
     end
 
