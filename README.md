@@ -3,3 +3,5 @@
 If you'd like to reach out, my discord is "Broguypal".
 
 _Copyright (c) 2026 Broguypal - BSD 3-Clause Licence (all addons)_
+
+_Gearswap includes are implied MIT_
