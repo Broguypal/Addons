@@ -151,7 +151,7 @@ However, this behavior can be changed in the w9_config.lua file.
 ## Additional Practical Benefits
 
 While its main purpose is GearSwap wardrobe management, Wardrobe9 also
-allows you to Qqickly generate a full structured list of all items in your
+allows you to Quickly generate a full structured list of all items in your
 inventory via the scan cache.
 
 ------------------------------------------------------------------------
