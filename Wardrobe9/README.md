@@ -118,9 +118,7 @@ selected GearSwap Lua files against your scan cache:
     referenced by any of your selected Lua files. Useful for identifying
     gear that can be safely moved out to free up wardrobe space.
 
-Both tools respect augmented gear. Items are matched by name, so
-augment-string differences between your Lua source and the game's
-internal data will not cause false results. Protected slot groups
+Both tools respect augmented gear. Protected slot groups
 and locked items (configured in `w9_config.lua`) are excluded from
 the unused report.
 
