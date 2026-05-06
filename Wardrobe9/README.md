@@ -122,9 +122,6 @@ Both tools respect augmented gear. Protected slot groups
 and locked items (configured in `w9_config.lua`) are excluded from
 the unused report.
 
-Select one or more Lua files, then press **VAL MISS** or **VAL UNUSED**
-to run the check. Results appear in the log panel.
-
 ------------------------------------------------------------------------
 
 ## Configuration (w9_config.lua)
