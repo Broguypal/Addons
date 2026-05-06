@@ -26,43 +26,42 @@ return function(ctx)
     local util    = ctx.util
     local layout  = ctx.layout
     local row_h   = ctx.row_h
+    local BTN_DEFS                 = ctx.BTN_DEFS
     local max_file_scroll          = ctx.max_file_scroll
     local max_log_scroll           = ctx.max_log_scroll
     local ensure_file_scroll_valid = ctx.ensure_file_scroll_valid
     local ensure_log_scroll_valid  = ctx.ensure_log_scroll_valid
     local ensure_selection_visible = ctx.ensure_selection_visible
-    local do_scan      = ctx.do_scan
-    local do_plan      = ctx.do_plan
-    local do_exec_swap = ctx.do_exec_swap
-    local do_exec_fill = ctx.do_exec_fill
     local clear_log    = ctx.clear_log
     local push_log     = ctx.push_log
     local SB_HIT_PAD_X = ctx.SB_HIT_PAD_X
     local SB_HIT_PAD_Y = ctx.SB_HIT_PAD_Y
 
     -- ======================================================
-    -- Hover
+    -- Hover (data-driven)
     -- ======================================================
 
     local function update_hover(mx, my)
         state.hover = nil
-        local checks = {
-            {'scan',         Rect.btn,            'scan'},
-            {'plan',         Rect.btn,            'plan'},
-            {'swap',         Rect.btn,            'swap'},
-            {'fill',         Rect.btn,            'fill'},
+
+        -- Check all buttons via BTN_DEFS.
+        for _, def in ipairs(BTN_DEFS) do
+            local x, y, w, h = Rect.button(def)
+            if Rect.point_in(mx, my, x, y, w, h) then
+                state.hover = def.id
+                return
+            end
+        end
+
+        -- Scrollbar arrow buttons.
+        local sb_checks = {
             {'file_sb_up',   Rect.file_sb_upbtn},
             {'file_sb_down', Rect.file_sb_downbtn},
             {'log_sb_up',    Rect.log_sb_upbtn},
             {'log_sb_down',  Rect.log_sb_downbtn},
         }
-        for _, c in ipairs(checks) do
-            local x, y, w, h
-            if c[3] then
-                x, y, w, h = c[2](c[3])
-            else
-                x, y, w, h = c[2]()
-            end
+        for _, c in ipairs(sb_checks) do
+            local x, y, w, h = c[2]()
             if Rect.point_in(mx, my, x, y, w, h) then
                 state.hover = c[1]
                 return
@@ -93,24 +92,21 @@ return function(ctx)
     end
 
     -- ======================================================
-    -- Button / file-list clicks
+    -- Button / file-list clicks (data-driven)
     -- ======================================================
 
     local function click_buttons(mx, my)
-        local x, y, w, h = Rect.btn('scan')
-        if Rect.point_in(mx, my, x, y, w, h) then do_scan(); return true end
+        -- Check all buttons via BTN_DEFS.
+        for _, def in ipairs(BTN_DEFS) do
+            local x, y, w, h = Rect.button(def)
+            if Rect.point_in(mx, my, x, y, w, h) then
+                if def.action then def.action() end
+                return true
+            end
+        end
 
-        x, y, w, h = Rect.btn('plan')
-        if Rect.point_in(mx, my, x, y, w, h) then do_plan(); return true end
-
-        x, y, w, h = Rect.btn('swap')
-        if Rect.point_in(mx, my, x, y, w, h) then do_exec_swap(); return true end
-
-        x, y, w, h = Rect.btn('fill')
-        if Rect.point_in(mx, my, x, y, w, h) then do_exec_fill(); return true end
-
-        -- Scrollbar arrow buttons
-        x, y, w, h = Rect.file_sb_upbtn()
+        -- Scrollbar arrow buttons.
+        local x, y, w, h = Rect.file_sb_upbtn()
         if Rect.point_in(mx, my, x, y, w, h) then return scroll_file_by(-1) end
         x, y, w, h = Rect.file_sb_downbtn()
         if Rect.point_in(mx, my, x, y, w, h) then return scroll_file_by(1) end

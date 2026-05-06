@@ -41,6 +41,8 @@ Wardrobe9 reads your selected GearSwap file and:
 5.  Offers two execution modes: **Swap** (replaces unused items of the
     same equipment type to make room) or **Fill** (uses free wardrobe
     slots first, only swapping as a last resort).
+6.  Validates your wardrobes for missing or unused gear across your
+    selected Lua files.
 
 This removes the need to manually check bags, compare sets, or move
 items one by one.
@@ -98,6 +100,32 @@ Wardrobe9 follows a safe workflow inside the UI:
 1.  **Scan** -- Build a list of all items you own and identify .lua files in your Gearswap folder.
 2.  **Plan** -- Compare your gear against the selected Luas and preview the proposed moves.
 3.  **Swap** or **Fill** -- Execute the plan using your preferred mode.
+4.  **VAL MISS** or **VAL UNUSED** -- Optionally validate your gear for missing or unused items.
+
+------------------------------------------------------------------------
+
+### ✅ Gear Validation
+
+Wardrobe9 includes two validation tools that cross-reference your
+selected GearSwap Lua files against your scan cache:
+
+-   **VAL MISS** — Lists items referenced in your Luas that are not
+    currently in your wardrobes. Results are split into two categories:
+    items missing entirely (not found in any bag) and items found in
+    non-wardrobe bags but not yet moved into a wardrobe.
+
+-   **VAL UNUSED** — Lists items sitting in your wardrobes that are not
+    referenced by any of your selected Lua files. Useful for identifying
+    gear that can be safely moved out to free up wardrobe space.
+
+Both tools respect augmented gear. Items are matched by name, so
+augment-string differences between your Lua source and the game's
+internal data will not cause false results. Protected slot groups
+and locked items (configured in `w9_config.lua`) are excluded from
+the unused report.
+
+Select one or more Lua files, then press **VAL MISS** or **VAL UNUSED**
+to run the check. Results appear in the log panel.
 
 ------------------------------------------------------------------------
 
@@ -128,14 +156,8 @@ However, this behavior can be changed in the w9_config.lua file.
 ## Additional Practical Benefits
 
 While its main purpose is GearSwap wardrobe management, Wardrobe9 also
-allows you to:
-
--   Quickly generate a full structured list of all items in your
-    inventory via the scan cache.
--   Easily validate your GearSwap files to confirm you actually own the
-    referenced gear.
-
-These are natural side benefits of the scan and planning system.
+allows you to Qqickly generate a full structured list of all items in your
+inventory via the scan cache.
 
 ------------------------------------------------------------------------
 
@@ -154,6 +176,7 @@ Wardrobe9 removes that friction by:
 
 -   Connecting your Luas directly to your wardrobes.
 -   Showing you exactly what's missing.
+-   Identifying unused gear that can be cleared out.
 -   Fixing storage automatically.
 
 It turns wardrobe management from a manual chore into a simple, visual

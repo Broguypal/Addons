@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'wardrobe9'
 _addon.author = 'Broguypal'
-_addon.version = '1.1'
+_addon.version = '2.0'
 
 local res = require('resources')
 local extdata = require('extdata')
@@ -51,6 +51,7 @@ local slots    = load_local('w9_slots.lua')(res)
 local bags     = load_local('w9_bags.lua')(res, util, config)
 local scan     = load_local('w9_scan.lua')(res, extdata, util, slots, ADDON_PATH, SCAN_FILE)
 local planner  = load_local('w9_planner.lua')(res, util, config, slots, bags, scan)
+local validate = load_local('w9_validate.lua')(res, util, config, bags, scan, planner)
 local execmod  = load_local('w9_executor.lua')(res, extdata, util)
 local mousemod = load_local('w9_mouse.lua')
-local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod)
+local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod, validate)

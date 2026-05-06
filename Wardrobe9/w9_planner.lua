@@ -191,19 +191,23 @@ return function(res, util, config, slots, bags, scanmod)
 
         -- 1) slot = { ... } form (captures augments if present)
         -- This will also match non-gear tables, but this is filtered by SLOT_GROUP keys via util.group_for_slot(slot).
-        for slot, tbl in src:gmatch("([%a_][%w_]*)%s*=%s*(%b{})") do
-            if util.group_for_slot(slot) then
-                local _q, nm = tbl:match("name%s*=%s*(['\"])(.-)%1")
-                if nm and nm ~= '' then
-                    local aug_list = parse_augments_block(tbl)
-                    if aug_list then
-                        add_needed(slot, { name = nm, augments = aug_list })
-                    else
-                        add_needed(slot, { name = nm })
-                    end
-                end
-            end
-        end
+        local pos = 1
+		while pos <= #src do
+			local s, e, slot, tbl = src:find("([%a_][%w_]*)%s*=%s*(%b{})", pos)
+			if not s then break end
+			if util.group_for_slot(slot) then
+				local _q, nm = tbl:match("name%s*=%s*(['\"])(.-)%1")
+				if nm and nm ~= '' then
+					local aug_list = parse_augments_block(tbl)
+					if aug_list then
+						add_needed(slot, { name = nm, augments = aug_list })
+					else
+						add_needed(slot, { name = nm })
+					end
+				end
+			end
+			pos = s + 1
+		end
 
         -- 2) slot = "Item" or 'Item' form
         for slot, quote, item in src:gmatch("([%a_][%w_]*)%s*=%s*(['\"])(.-)%2") do
@@ -918,6 +922,10 @@ return function(res, util, config, slots, bags, scanmod)
         M.print_plan_header(plan)
         M.print_plan_moves(plan, plan.mode and plan.mode:upper() or 'PLAN')
     end
+	
+	-- Exposed for w9_validate module
+    M.extract_needed = walk_text_collect
+    M.index_scan_items = index_scan_items
 
     return M
 end

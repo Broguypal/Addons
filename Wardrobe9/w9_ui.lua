@@ -15,50 +15,71 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
-return function(res, util, config, scanmod, planner, execmod, mousemod)
+return function(res, util, config, scanmod, planner, execmod, mousemod, validate)
     local ui = {}
 
     local texts  = require('texts')
     local images = require('images')
 
+    -- ==========================================================================
+    -- Asset paths
+    -- ==========================================================================
+
+    local ADDON_PATH = windower.addon_path or (_addon and _addon.path) or 'addons/wardrobe9/'
+    local ASSETS_DIR = ADDON_PATH .. 'assets/'
+
+    local ASSET = {
+        panel_bg       = ASSETS_DIR .. 'panel_bg.png',
+        header_bg      = ASSETS_DIR .. 'header_bg.png',
+        btn            = ASSETS_DIR .. 'btn.png',
+        btn_hover      = ASSETS_DIR .. 'btn_hover.png',
+        btn_wide       = ASSETS_DIR .. 'btn_wide.png',
+        btn_wide_hover = ASSETS_DIR .. 'btn_wide_hover.png',
+        row_selected   = ASSETS_DIR .. 'row_selected.png',
+        sb_track       = ASSETS_DIR .. 'sb_track.png',
+        sb_thumb       = ASSETS_DIR .. 'sb_thumb.png',
+        sb_arrow_up    = ASSETS_DIR .. 'sb_arrow_up.png',
+        sb_arrow_down  = ASSETS_DIR .. 'sb_arrow_down.png',
+        chk_on         = ASSETS_DIR .. 'chk_on.png',
+        chk_off        = ASSETS_DIR .. 'chk_off.png',
+    }
+
+    -- ==========================================================================
+    -- Pixel constants
+    -- ==========================================================================
+
     local PX = {
-        -- Panel outer width (fixed)
         PANEL_W     = 480,
-
-        -- Padding inside the panel edge
         PAD         = 8,
-
-        -- Header / title bar (drag target)
         HEADER_H    = 24,
 
-        -- Buttons
         BTN_W       = 72,
         BTN_H       = 18,
         BTN_GAP     = 8,
-        BTN_Y       = 30,          -- px below panel top
+        BTN_Y       = 30,
 
-        -- Status line
-        STATUS_Y    = 54,
+        VAL_BTN_W   = 108,
+        VAL_BTN_H   = 18,
+        VAL_BTN_Y   = 56,
 
-        -- File list
-        FILE_Y      = 72,          -- px below panel top
+        STATUS_Y    = 82,
+
+        FILE_Y      = 100,
         FILE_ROWS   = 5,
 
-        -- Gap between file list bottom and log label
         SECTION_GAP = 20,
 
-        -- Log
         LOG_ROWS    = 17,
-        LOG_LABEL_H = 16,          -- "Notifications" label height
+        LOG_LABEL_H = 16,
 
-        -- Scrollbar (flush right inside panel)
         SB_W        = 12,
-        SB_BTN_H    = 16,          -- up/down arrow button height
+        SB_BTN_H    = 16,
 
-        -- Row height fallback (overridden by measurement)
+        CHK_SIZE    = 14,
+        CHK_GAP     = 4,
+
         ROW_H       = 16,
 
-        -- Bottom padding
         BOTTOM_PAD  = 8,
     }
 
@@ -80,7 +101,6 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         return _measured_row_h or PX.ROW_H
     end
 
-    -- How many characters fit in a pixel width.
     local function chars_in(px_width)
         local cw = char_w()
         if cw <= 0 then return 60 end
@@ -122,22 +142,14 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     }
 
     -- ==========================================================================
-    -- Colors
+    -- Colors (text-only — visual chrome comes from images)
     -- ==========================================================================
 
     local C = {
         text    = {255, 235, 235, 235},
         subtle  = {255, 190, 190, 190},
 
-        panel_bg = {220,  20,  20,  20},
-        btn_bg   = {255,  45,  45,  45},
-        btn_hov  = {255,  70,  70,  70},
         btn_txt  = {255, 245, 245, 245},
-
-        sel_bg   = {255,  60,  60,  90},
-
-        sb_track = {120,  60,  60,  60},
-        sb_thumb = {255, 160, 160, 220},
 
         log_msg     = {255, 200, 220, 255},
         log_warn    = {255, 255, 220, 140},
@@ -155,9 +167,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
 
     local state = {
         files          = {},
-        -- Multi-select: {[abs_index] = true} for every checked file.
         selected_set   = {},
-        -- Tracks the last row clicked, used only for scroll-into-view.
         selected_index = nil,
         last_plan      = nil,
         status         = 'Ready.',
@@ -181,35 +191,57 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     }
 
     -- ==========================================================================
-    -- Text objects
+    -- Image helper
     -- ==========================================================================
 
-    local img_panel = images.new()
-    img_panel:color(20, 20, 20)
-    img_panel:alpha(220)
-    img_panel:hide()
-    local t_title   = texts.new('')
-    local t_status  = texts.new('')
+    local function make_img(asset_path)
+        local img = images.new()
+        img:path(asset_path)
+        img:hide()
+        return img
+    end
 
-    local t_btn_scan = texts.new('')
-    local t_btn_plan = texts.new('')
-    local t_btn_swap = texts.new('')
-    local t_btn_fill = texts.new('')
+    -- ==========================================================================
+    -- Image objects — visual chrome
+    -- ==========================================================================
 
-    local t_file_rows     = {}
-    local t_file_sb_track = texts.new('')
-    local t_file_sb_thumb = texts.new('')
-    local t_file_sb_up    = texts.new('')
-    local t_file_sb_down  = texts.new('')
+    local img_panel  = make_img(ASSET.panel_bg)
+    local img_header = make_img(ASSET.header_bg)
 
-    local t_log_title    = texts.new('')
-    local t_log_rows     = {}
-    local t_log_sb_track = texts.new('')
-    local t_log_sb_thumb = texts.new('')
-    local t_log_sb_up    = texts.new('')
-    local t_log_sb_down  = texts.new('')
+    -- Row-selection highlight images (one per visible file row)
+    local img_row_sel = {}
+    for i = 1, PX.FILE_ROWS do
+        img_row_sel[i] = make_img(ASSET.row_selected)
+    end
 
-    -- ---- Shared text-object helpers ----
+    -- Checkbox images (one per visible file row)
+    local img_chk = {}
+    for i = 1, PX.FILE_ROWS do
+        img_chk[i] = make_img(ASSET.chk_off)
+    end
+
+    -- Scrollbar images: file list
+    local img_file_sb_track = make_img(ASSET.sb_track)
+    local img_file_sb_thumb = make_img(ASSET.sb_thumb)
+    local img_file_sb_up    = make_img(ASSET.sb_arrow_up)
+    local img_file_sb_down  = make_img(ASSET.sb_arrow_down)
+
+    -- Scrollbar images: log
+    local img_log_sb_track = make_img(ASSET.sb_track)
+    local img_log_sb_thumb = make_img(ASSET.sb_thumb)
+    local img_log_sb_up    = make_img(ASSET.sb_arrow_up)
+    local img_log_sb_down  = make_img(ASSET.sb_arrow_down)
+
+    -- ==========================================================================
+    -- Text objects (content only — transparent backgrounds)
+    -- ==========================================================================
+
+    local t_title  = texts.new('')
+    local t_status = texts.new('')
+
+    local t_file_rows = {}
+    local t_log_title = texts.new('')
+    local t_log_rows  = {}
 
     local function apply_text_defaults(t)
         t:font(FONT_NAME)
@@ -223,15 +255,35 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         t:color(rgba[1], rgba[2], rgba[3], rgba[4])
     end
 
-    local function set_bg(t, rgba)
-        t:bg_color(rgba[2], rgba[3], rgba[4])
-        t:bg_alpha(rgba[1])
-    end
-
     local function pad_right(s, w)
         s = s or ''
         if #s >= w then return s:sub(1, w) end
         return s .. string.rep(' ', w - #s)
+    end
+
+    -- ==========================================================================
+    -- Data-driven button table
+    --
+    -- Each entry owns one image and one text object.  Actions are attached
+    -- later (after the action functions are defined) via attach_button_actions().
+    -- ==========================================================================
+
+    local BTN_DEFS = {
+        { id='scan',       label='SCAN',       wide=false },
+        { id='plan',       label='PLAN',       wide=false },
+        { id='swap',       label='SWAP',       wide=false },
+        { id='fill',       label='FILL',       wide=false },
+        { id='val_miss',   label='VAL:MISS',   wide=true  },
+        { id='val_unused', label='VAL:UNUSED', wide=true  },
+    }
+
+    local BTN_BY_ID = {}
+
+    for _, def in ipairs(BTN_DEFS) do
+        def.img  = make_img(def.wide and ASSET.btn_wide or ASSET.btn)
+        def.text = texts.new('')
+        apply_text_defaults(def.text)
+        BTN_BY_ID[def.id] = def
     end
 
     -- ==========================================================================
@@ -314,7 +366,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
 
     local function refresh_file_list()
         state.files          = {}
-        state.selected_set   = {}   -- clear all checkboxes on refresh
+        state.selected_set   = {}
         state.selected_index = nil
         state.file_scroll    = 0
 
@@ -342,8 +394,6 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         state.status = ('Found %d GearSwap lua(s). Click rows to check/uncheck.'):format(#state.files)
     end
 
-    -- Returns a sorted list of checked file records: { rel, label, ... }
-    -- This is what PLAN / SWAP / FILL operate on.
     local function selected_files_list()
         local out = {}
         for abs, checked in pairs(state.selected_set) do
@@ -351,12 +401,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
                 out[#out+1] = state.files[abs]
             end
         end
-        -- Sort by label so the merged plan header is deterministic.
         table.sort(out, function(a, b) return (a.label or '') < (b.label or '') end)
         return out
     end
 
-    -- Helper: count checked files.
     local function selected_count()
         local n = 0
         for _, v in pairs(state.selected_set) do
@@ -366,7 +414,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     end
 
     -- ==========================================================================
-    -- Hit-test rectangles 
+    -- Hit-test rectangles
     -- ==========================================================================
 
     local Rect = {}
@@ -375,6 +423,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         return UI.x, UI.y, PX.PANEL_W, PX.HEADER_H
     end
 
+    -- Generic button rect — works for both normal and wide buttons.
     function Rect.btn(which)
         local bx = UI.x + PX.PAD
         local by = UI.y + PX.BTN_Y
@@ -389,6 +438,22 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         end
     end
 
+    function Rect.val_btn(which)
+        local bx = UI.x + PX.PAD
+        local by = UI.y + PX.VAL_BTN_Y
+        if which == 'val_miss' then
+            return bx, by, PX.VAL_BTN_W, PX.VAL_BTN_H
+        else -- 'val_unused'
+            return bx + PX.VAL_BTN_W + PX.BTN_GAP, by, PX.VAL_BTN_W, PX.VAL_BTN_H
+        end
+    end
+
+    -- Unified rect lookup used by the data-driven button table.
+    function Rect.button(def)
+        if def.wide then return Rect.val_btn(def.id)
+        else             return Rect.btn(def.id) end
+    end
+
     function Rect.file_list()
         local lx = UI.x + PX.PAD
         local ly = UI.y + PX.FILE_Y
@@ -401,7 +466,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         return lx, ly, content_w(), PX.LOG_ROWS * row_h()
     end
 
-    -- ---- File scrollbar  ----
+    -- ---- File scrollbar ----
 
     local function file_sb_x() return UI.x + PX.PANEL_W - PX.SB_W end
     local function file_sb_y() return UI.y + PX.FILE_Y end
@@ -497,44 +562,32 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         end
     end
 
-    function Render.make_block(rows, cols)
-        local line = string.rep(' ', math.max(1, cols))
-        local lines = {}
-        for _ = 1, math.max(1, rows) do lines[#lines + 1] = line end
-        return table.concat(lines, '\n')
+    -- Position and stretch an image, then show it.
+    function Render.place_img(img, x, y, w, h)
+        img:pos(x, y)
+        img:size(w, h)
+        img:show()
     end
 
-    function Render.set_block(t, x, y, rows, cols, bg)
-        if x and y then t:pos(x, y) end
-        t:text(Render.make_block(rows, cols))
-        set_bg(t, bg)
-        t:visible(true)
-    end
-
-    function Render.scrollbar(track_obj, thumb_obj, track_fn, thumb_fn)
-        local sx, sy, sw, sh = track_fn()
-        local tc = math.max(1, chars_in(sw))
-        local tr = math.max(1, math.floor(sh / row_h()))
-        track_obj:pos(sx, sy)
-        track_obj:text(Render.make_block(tr, tc))
-        set_bg(track_obj, C.sb_track)
-        track_obj:visible(true)
-
-        local tx, ty, tw, th = thumb_fn()
-        local thc = math.max(1, chars_in(tw))
-        local thr = math.max(1, math.floor(th / row_h()))
-        thumb_obj:pos(tx, ty)
-        thumb_obj:text(Render.make_block(thr, thc))
-        set_bg(thumb_obj, C.sb_thumb)
-        thumb_obj:visible(true)
-    end
-
-    function Render.sb_btn(t, which, label)
-        local c = math.max(1, chars_in(PX.SB_W))
-        t:text(pad_right(label, c))
-        set_color(t, C.btn_txt)
-        set_bg(t, state.hover == which and C.btn_hov or C.sb_track)
-        t:visible(true)
+    -- Position a scrollbar image set (track, thumb, arrows).
+    function Render.scrollbar_imgs(track_img, thumb_img, up_img, down_img,
+                                   sb_upbtn_fn, sb_downbtn_fn, track_fn, thumb_fn)
+        do -- up arrow
+            local x, y, w, h = sb_upbtn_fn()
+            Render.place_img(up_img, x, y, w, h)
+        end
+        do -- down arrow
+            local x, y, w, h = sb_downbtn_fn()
+            Render.place_img(down_img, x, y, w, h)
+        end
+        do -- track
+            local x, y, w, h = track_fn()
+            Render.place_img(track_img, x, y, w, h)
+        end
+        do -- thumb
+            local x, y, w, h = thumb_fn()
+            Render.place_img(thumb_img, x, y, w, h)
+        end
     end
 
     -- ==========================================================================
@@ -542,64 +595,32 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     -- ==========================================================================
 
     local function set_all_visible(v)
-        local objs = {
-            t_title, t_status,
-            t_btn_scan, t_btn_plan, t_btn_swap, t_btn_fill,
-            t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
-            t_log_title,
-            t_log_sb_track, t_log_sb_thumb, t_log_sb_up, t_log_sb_down,
+        -- Images
+        local all_imgs = {
+            img_panel, img_header,
+            img_file_sb_track, img_file_sb_thumb, img_file_sb_up, img_file_sb_down,
+            img_log_sb_track,  img_log_sb_thumb,  img_log_sb_up,  img_log_sb_down,
         }
-        for _, t in ipairs(objs) do if t then t:visible(v) end end
+        for _, img in ipairs(all_imgs) do
+            if v then img:show() else img:hide() end
+        end
+
+        for i = 1, PX.FILE_ROWS do
+            if v then img_row_sel[i]:show() else img_row_sel[i]:hide() end
+            if v then img_chk[i]:show()     else img_chk[i]:hide()     end
+        end
+
+        -- Button images + text
+        for _, def in ipairs(BTN_DEFS) do
+            if v then def.img:show() else def.img:hide() end
+            def.text:visible(v)
+        end
+
+        -- Text objects
+        local txt_objs = { t_title, t_status, t_log_title }
+        for _, t in ipairs(txt_objs) do if t then t:visible(v) end end
         for _, t in pairs(t_file_rows) do if t then t:visible(v) end end
         for _, t in pairs(t_log_rows)  do if t then t:visible(v) end end
-        if v then img_panel:show() else img_panel:hide() end
-    end
-
-    -- ==========================================================================
-    -- Reposition — pure pixel offsets from (UI.x, UI.y)
-    -- ==========================================================================
-
-    local function reposition_all()
-        t_title:pos(UI.x + PX.PAD, UI.y + 4)
-        t_status:pos(UI.x + PX.PAD, UI.y + PX.STATUS_Y)
-
-        -- Buttons
-        do
-            local bx, by = Rect.btn('scan');  t_btn_scan:pos(bx, by)
-            bx, by = Rect.btn('plan');        t_btn_plan:pos(bx, by)
-            bx, by = Rect.btn('swap');        t_btn_swap:pos(bx, by)
-            bx, by = Rect.btn('fill');        t_btn_fill:pos(bx, by)
-        end
-
-        -- File rows
-        do
-            local lx = UI.x + PX.PAD
-            local ly = UI.y + PX.FILE_Y
-            Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
-            for i = 1, PX.FILE_ROWS do
-                t_file_rows[i]:pos(lx, ly + (i - 1) * row_h())
-            end
-            local ux, uy = Rect.file_sb_upbtn();    t_file_sb_up:pos(ux, uy)
-            local dx, dy = Rect.file_sb_downbtn();   t_file_sb_down:pos(dx, dy)
-            local sx, sy = Rect.file_scrollbar();    t_file_sb_track:pos(sx, sy)
-            local tx, ty = Rect.file_thumb();        t_file_sb_thumb:pos(tx, ty)
-        end
-
-        -- Log rows
-        do
-            local lx = UI.x + PX.PAD
-            t_log_title:pos(lx, UI.y + log_y_off() - PX.LOG_LABEL_H)
-
-            local ly = UI.y + log_y_off()
-            Render.ensure_rows(t_log_rows, PX.LOG_ROWS)
-            for i = 1, PX.LOG_ROWS do
-                t_log_rows[i]:pos(lx, ly + (i - 1) * row_h())
-            end
-            local ux, uy = Rect.log_sb_upbtn();     t_log_sb_up:pos(ux, uy)
-            local dx, dy = Rect.log_sb_downbtn();    t_log_sb_down:pos(dx, dy)
-            local sx, sy = Rect.log_scrollbar();     t_log_sb_track:pos(sx, sy)
-            local tx, ty = Rect.log_thumb();         t_log_sb_thumb:pos(tx, ty)
-        end
     end
 
     -- ==========================================================================
@@ -607,14 +628,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     -- ==========================================================================
 
     local function layout()
-        local all_fixed = {
-            t_title, t_status,
-            t_btn_scan, t_btn_plan, t_btn_swap, t_btn_fill,
-            t_file_sb_track, t_file_sb_thumb, t_file_sb_up, t_file_sb_down,
-            t_log_title,
-            t_log_sb_track, t_log_sb_thumb, t_log_sb_up, t_log_sb_down,
-        }
-        for _, t in ipairs(all_fixed) do apply_text_defaults(t) end
+        -- Ensure text defaults on fixed text objects.
+        local fixed_txt = { t_title, t_status, t_log_title }
+        for _, t in ipairs(fixed_txt) do apply_text_defaults(t) end
+        for _, def in ipairs(BTN_DEFS) do apply_text_defaults(def.text) end
 
         if not UI.visible then
             Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
@@ -623,74 +640,124 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
 
-        -- Panel background 
-        img_panel:pos(UI.x, UI.y)
-        img_panel:size(PX.PANEL_W, math.floor(panel_h()))
-        img_panel:show()
+        -- ---- Panel background ----
+        Render.place_img(img_panel, UI.x, UI.y, PX.PANEL_W, math.floor(panel_h()))
 
-        -- Title
+        -- ---- Header background ----
+        Render.place_img(img_header, UI.x, UI.y, PX.PANEL_W, PX.HEADER_H)
+
+        -- ---- Title text ----
+        t_title:pos(UI.x + PX.PAD, UI.y + 4)
         t_title:text('Wardrobe9 — Mog House')
         set_color(t_title, C.text)
         t_title:visible(true)
 
-        -- Status
-        t_status:text(state.status or '')
+        -- ---- Status text (truncated to panel width) ----
+        local status_max = chars_in(PX.PANEL_W - PX.PAD * 2)
+        local status_str = (state.status or ''):sub(1, status_max)
+        t_status:pos(UI.x + PX.PAD, UI.y + PX.STATUS_Y)
+        t_status:text(status_str)
         set_color(t_status, C.subtle)
         t_status:visible(true)
 
-        -- Buttons
-        do
-            local bc = chars_in(PX.BTN_W)
-            local function rbtn(t, label, which)
-                t:text(pad_right(label, bc))
-                set_color(t, C.btn_txt)
-                set_bg(t, state.hover == which and C.btn_hov or C.btn_bg)
-                t:visible(true)
+        -- ---- Buttons (data-driven) ----
+        for _, def in ipairs(BTN_DEFS) do
+            local bx, by, bw, bh = Rect.button(def)
+            local is_hover = (state.hover == def.id)
+
+            -- Swap image path for hover state.
+            if is_hover then
+                def.img:path(def.wide and ASSET.btn_wide_hover or ASSET.btn_hover)
+            else
+                def.img:path(def.wide and ASSET.btn_wide or ASSET.btn)
             end
-            rbtn(t_btn_scan, '[ SCAN ]', 'scan')
-            rbtn(t_btn_plan, '[ PLAN ]', 'plan')
-            rbtn(t_btn_swap, '[ SWAP ]', 'swap')
-            rbtn(t_btn_fill, '[ FILL ]', 'fill')
+            Render.place_img(def.img, bx, by, bw, bh)
+
+            -- Center label text on button.
+            local label_px_w = #def.label * char_w()
+            local tx = bx + math.floor((bw - label_px_w) / 2)
+            local ty = by + 1
+            def.text:pos(tx, ty)
+            def.text:text(def.label)
+            set_color(def.text, C.btn_txt)
+            def.text:bg_alpha(0)
+            def.text:visible(true)
         end
 
-        -- File rows — each row shows a [x]/[ ] checkbox prefix.
-        local rc = chars_in(content_w())
+        -- ---- File rows ----
+        local chk_total = PX.CHK_SIZE + PX.CHK_GAP
+        local text_w    = content_w() - chk_total
+        local rc = chars_in(text_w)
         Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
         ensure_file_scroll_valid()
+
+        local file_lx = UI.x + PX.PAD
+        local file_ly = UI.y + PX.FILE_Y
+
         for vis = 1, PX.FILE_ROWS do
             local abs = state.file_scroll + vis
             local t   = t_file_rows[vis]
             local rec = state.files[abs]
+            local ry  = file_ly + (vis - 1) * row_h()
+
+            -- Checkbox image (vertically centered in row).
+            local chk_y = ry + math.floor((row_h() - PX.CHK_SIZE) / 2)
+            -- Text starts after checkbox + gap.
+            local tx = file_lx + chk_total
+
+            t:pos(tx, ry)
+
             if rec then
                 local checked = state.selected_set[abs] == true
-                local prefix  = checked and '[x] ' or '[ ] '
-                t:text(pad_right(prefix .. rec.label, rc))
-                if checked then set_bg(t, C.sel_bg) else t:bg_alpha(0) end
+
+                -- Show correct checkbox image.
+                img_chk[vis]:path(checked and ASSET.chk_on or ASSET.chk_off)
+                Render.place_img(img_chk[vis], file_lx, chk_y, PX.CHK_SIZE, PX.CHK_SIZE)
+
+                t:text(pad_right(rec.label, rc))
                 set_color(t, C.text)
+
+                -- Row selection highlight image.
+                if checked then
+                    Render.place_img(img_row_sel[vis], file_lx, ry, content_w(), row_h())
+                else
+                    img_row_sel[vis]:hide()
+                end
             else
                 t:text(pad_right('', rc))
-                t:bg_alpha(0)
+                img_chk[vis]:hide()
+                img_row_sel[vis]:hide()
             end
+
+            t:bg_alpha(0)
             t:visible(true)
         end
 
-        -- File scrollbar
-        Render.scrollbar(t_file_sb_track, t_file_sb_thumb, Rect.file_scrollbar, Rect.file_thumb)
-        Render.sb_btn(t_file_sb_up,   'file_sb_up',   '^')
-        Render.sb_btn(t_file_sb_down, 'file_sb_down', 'v')
+        -- ---- File scrollbar ----
+        Render.scrollbar_imgs(
+            img_file_sb_track, img_file_sb_thumb, img_file_sb_up, img_file_sb_down,
+            Rect.file_sb_upbtn, Rect.file_sb_downbtn, Rect.file_scrollbar, Rect.file_thumb)
 
-        -- Log label
+        -- ---- Log label ----
+        t_log_title:pos(UI.x + PX.PAD, UI.y + log_y_off() - PX.LOG_LABEL_H)
         t_log_title:text('Notifications')
         set_color(t_log_title, C.subtle)
         t_log_title:visible(true)
 
-        -- Log rows
+        -- ---- Log rows ----
         Render.ensure_rows(t_log_rows, PX.LOG_ROWS)
         ensure_log_scroll_valid()
+
+        local log_lx = UI.x + PX.PAD
+        local log_ly = UI.y + log_y_off()
+
         for vis = 1, PX.LOG_ROWS do
             local abs = state.log_scroll + vis
             local t   = t_log_rows[vis]
             local rec = state.log_lines[abs]
+
+            t:pos(log_lx, log_ly + (vis - 1) * row_h())
+
             if rec then
                 t:text(rec.text)
                 set_color(t, rec.color or C.text)
@@ -701,12 +768,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             t:visible(true)
         end
 
-        -- Log scrollbar
-        Render.scrollbar(t_log_sb_track, t_log_sb_thumb, Rect.log_scrollbar, Rect.log_thumb)
-        Render.sb_btn(t_log_sb_up,   'log_sb_up',   '^')
-        Render.sb_btn(t_log_sb_down, 'log_sb_down', 'v')
-
-        reposition_all()
+        -- ---- Log scrollbar ----
+        Render.scrollbar_imgs(
+            img_log_sb_track, img_log_sb_thumb, img_log_sb_up, img_log_sb_down,
+            Rect.log_sb_upbtn, Rect.log_sb_downbtn, Rect.log_scrollbar, Rect.log_thumb)
     end
 
     -- ==========================================================================
@@ -814,8 +879,11 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
         clear_log()
-        util.msg('Scan complete. Check one or more luas and press PLAN.')
-        state.status = 'Scan complete. Check lua(s) and press PLAN.'
+        util.msg('Scan complete. Check one or more luas, then:')
+        util.msg('  PLAN → Preview wardrobe moves, then SWAP or FILL to execute.')
+        util.msg('  VAL:MISS → List gear in your luas that is missing from wardrobes.')
+        util.msg('  VAL:UNUSED → List wardrobe items not referenced by your luas.')
+        state.status = 'Scan complete. Check lua(s) and press PLAN or VAL.'
         refresh_file_list()
         layout()
     end
@@ -849,18 +917,18 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
             return
         end
 
-        state.last_plan = swap_plan  -- sentinel checked by do_exec_with_mode
+        state.last_plan = swap_plan
         state.status = ('Plans ready: SWAP=%d moves  FILL=%d moves  [%s]'):format(
             swap_plan.moves and #swap_plan.moves or 0,
             fill_plan.moves and #fill_plan.moves or 0,
             label)
 
-        -- Header info (missing, mismatches, notes) comes from swap_plan — identical for both.
         planner.print_plan_header(swap_plan)
-        -- Move lists shown back-to-back.
         planner.print_plan_moves(swap_plan, 'SWAP')
         planner.print_plan_moves(fill_plan, 'FILL')
-        util.msg('Press [ SWAP ] or [ FILL ] to execute.')
+        util.msg('Press [ SWAP ] or [ FILL ] to execute:')
+        util.msg('  SWAP → Evict unused same-type gear to make room, free slots as fallback.')
+        util.msg('  FILL → Use free wardrobe slots first, evict only as last resort.')
         layout()
     end
 
@@ -909,6 +977,128 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
     end
 
     -- ==========================================================================
+    -- Validate actions
+    -- ==========================================================================
+
+    local function do_val_miss()
+        local files = selected_files_list()
+        if #files == 0 then
+            state.status = 'Check at least one lua file first.'
+            util.warn('Check at least one lua file before pressing VAL:MISS.')
+            layout()
+            return
+        end
+        clear_log()
+
+        local result, err = validate.validate_missing(files)
+        if not result then
+            state.status = tostring(err)
+            util.err(tostring(err))
+            layout()
+            return
+        end
+
+        state.status = ('VAL:MISS — %d required | %d in wardrobes | %d missing | %d in other bags  [%s]')
+            :format(result.total, result.in_wardrobes,
+                    #result.missing_entirely, #result.in_bags_not_wardrobes,
+                    result.label)
+
+        util.msg(('Validate Missing — File(s): %s'):format(result.label))
+        util.msg(('Required items: %d | In wardrobes: %d'):format(result.total, result.in_wardrobes))
+
+        if #result.missing_entirely == 0 and #result.in_bags_not_wardrobes == 0 then
+            util.msg('All referenced gear is present in your wardrobes.')
+        end
+
+        if #result.missing_entirely > 0 then
+            util.warn(('--- Missing from ALL bags/wardrobes: %d ---'):format(#result.missing_entirely))
+            for i, m in ipairs(result.missing_entirely) do
+                if i > 80 then util.warn(('  ...and %d more'):format(#result.missing_entirely - 80)); break end
+                local aug_suffix = (m.aug ~= '') and (' (Aug: %s)'):format(m.aug) or ''
+                util.warn(('  [%s] %s%s'):format(m.group, m.name, aug_suffix))
+            end
+        end
+
+        if #result.in_bags_not_wardrobes > 0 then
+            util.warn(('--- Missing from wardrobes but present in other bags: %d ---'):format(#result.in_bags_not_wardrobes))
+            for i, m in ipairs(result.in_bags_not_wardrobes) do
+                if i > 80 then util.warn(('  ...and %d more'):format(#result.in_bags_not_wardrobes - 80)); break end
+                local aug_suffix = (m.aug ~= '') and (' (Aug: %s)'):format(m.aug) or ''
+                util.warn(('  [%s] %s%s  —  Found in: %s'):format(m.group, m.name, aug_suffix, m.bags))
+            end
+        end
+
+        layout()
+    end
+
+    local function do_val_unused()
+        local files = selected_files_list()
+        if #files == 0 then
+            state.status = 'Check at least one lua file first.'
+            util.warn('Check at least one lua file before pressing VAL:UNUSED.')
+            layout()
+            return
+        end
+        clear_log()
+
+        local result, err = validate.validate_unused(files)
+        if not result then
+            state.status = tostring(err)
+            util.err(tostring(err))
+            layout()
+            return
+        end
+
+        local n = #result.unused
+        state.status = ('VAL:UNUSED — %d wardrobe item(s) not referenced by selected lua(s)  [%s]')
+            :format(n, result.label)
+
+        util.msg(('Validate Unused — File(s): %s'):format(result.label))
+
+        if n == 0 then
+            util.msg('Every item in your wardrobes is referenced by the selected lua(s).')
+        else
+            util.warn(('--- Unused wardrobe items: %d ---'):format(n))
+            for i, u in ipairs(result.unused) do
+                if i > 120 then util.warn(('  ...and %d more'):format(n - 120)); break end
+                local aug_suffix = (u.aug ~= '') and (' (Aug: %s)'):format(u.aug) or ''
+                util.warn(('  [%s] %s%s  —  %s'):format(u.group, u.name, aug_suffix, u.bag_name))
+            end
+        end
+
+        util.warn('')
+        if result.has_custom_vars then
+            util.warn('Note: Items referenced via CUSTOM_GEAR_VARIABLES in w9_config.lua were included in matching.')
+            util.warn('However, any custom gearswap variables NOT defined in the config may cause items to appear unused here.')
+        else
+            util.warn('Warning: No CUSTOM_GEAR_VARIABLES are defined in w9_config.lua.')
+            util.warn('If your lua files use custom variable names for gear (e.g. WAR_HEAD = "Item Name"),')
+            util.warn('those items will NOT be detected as "used" and may appear in this list incorrectly.')
+            util.warn('Add them to CUSTOM_GEAR_VARIABLES in w9_config.lua to fix this.')
+        end
+
+        layout()
+    end
+
+    -- ==========================================================================
+    -- Attach actions to button defs (now that functions exist)
+    -- ==========================================================================
+
+    do
+        local actions = {
+            scan       = do_scan,
+            plan       = do_plan,
+            swap       = do_exec_swap,
+            fill       = do_exec_fill,
+            val_miss   = do_val_miss,
+            val_unused = do_val_unused,
+        }
+        for _, def in ipairs(BTN_DEFS) do
+            def.action = actions[def.id]
+        end
+    end
+
+    -- ==========================================================================
     -- Mouse handler (w9_mouse.lua)
     -- ==========================================================================
 
@@ -920,15 +1110,12 @@ return function(res, util, config, scanmod, planner, execmod, mousemod)
         util    = util,
         layout  = function() layout() end,
         row_h   = row_h,
+        BTN_DEFS = BTN_DEFS,
         max_file_scroll          = max_file_scroll,
         max_log_scroll           = max_log_scroll,
         ensure_file_scroll_valid = ensure_file_scroll_valid,
         ensure_log_scroll_valid  = ensure_log_scroll_valid,
         ensure_selection_visible = ensure_selection_visible,
-        do_scan      = do_scan,
-        do_plan      = do_plan,
-        do_exec_swap = do_exec_swap,
-        do_exec_fill = do_exec_fill,
         clear_log    = clear_log,
         push_log     = push_log,
         SB_HIT_PAD_X = SB_HIT_PAD_X,
