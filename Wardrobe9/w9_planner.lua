@@ -151,11 +151,125 @@ return function(res, util, config, slots, bags, scanmod)
         return out
     end
 
+    -- ======================================================
+    -- Comment stripping (used by variable resolution pass)
+    -- ======================================================
+
+    local function strip_block_comments(text)
+        local result = text
+        while true do
+            local open = result:find('%-%-%[%[', 1, false)
+            if not open then break end
+            local close = result:find('%]%]', open + 4, false)
+            if not close then
+                result = result:sub(1, open - 1)
+                break
+            end
+            local end_pos = close + 1
+            if result:sub(end_pos + 1, end_pos + 2) == '--' then
+                end_pos = end_pos + 2
+            end
+            result = result:sub(1, open - 1) .. result:sub(end_pos + 1)
+        end
+        return result
+    end
+
+    local function strip_line_comments(text)
+        local lines = {}
+        for line in (text .. '\n'):gmatch('(.-)\n') do
+            local stripped = line
+            local i = 1
+            while i <= #stripped do
+                local c = stripped:sub(i, i)
+                if c == '"' or c == "'" then
+                    local close = stripped:find(c, i + 1, true)
+                    if close then
+                        i = close + 1
+                    else
+                        break
+                    end
+                elseif c == '-' and stripped:sub(i + 1, i + 1) == '-' then
+                    stripped = stripped:sub(1, i - 1)
+                    break
+                else
+                    i = i + 1
+                end
+            end
+            lines[#lines + 1] = stripped
+        end
+        return table.concat(lines, '\n')
+    end
+
+    local function strip_comments(text)
+        return strip_line_comments(strip_block_comments(text))
+    end
+
+    -- ======================================================
+    -- Variable collector (TABLE.field and simple var assignments)
+    --
+    -- Builds a lookup: { ["TABLE.field"] = "string value", ["var"] = "string value" }
+    -- Used to resolve indirect gear references like head = EMPY.Head
+    -- ======================================================
+
+    local GEAR_SLOT_NAMES = {}
+    for slot_key in pairs(config.SLOT_GROUP or {}) do
+        GEAR_SLOT_NAMES[slot_key] = true
+    end
+    GEAR_SLOT_NAMES['name'] = true
+
+    local function collect_variables(clean)
+        local vars = {}
+
+        -- TABLE.field = "string"  or  TABLE.field = 'string'
+        for tbl, field, val in clean:gmatch("(%a[%w_]*)%.(%a[%w_]*)%s*=%s*\"([^\"]+)\"") do
+            vars[tbl .. '.' .. field] = val:match('^%s*(.-)%s*$')
+        end
+        for tbl, field, val in clean:gmatch("(%a[%w_]*)%.(%a[%w_]*)%s*=%s*'([^']+)'") do
+            vars[tbl .. '.' .. field] = val:match('^%s*(.-)%s*$')
+        end
+
+        -- TABLE = { field = "string", ... }  (table constructors)
+        for tbl_name, body in clean:gmatch("(%a[%w_]*)%s*=%s*(%b{})") do
+            for field, val in body:gmatch("(%a[%w_]*)%s*=%s*\"([^\"]+)\"") do
+                local key = tbl_name .. '.' .. field
+                if not vars[key] then
+                    vars[key] = val:match('^%s*(.-)%s*$')
+                end
+            end
+            for field, val in body:gmatch("(%a[%w_]*)%s*=%s*'([^']+)'") do
+                local key = tbl_name .. '.' .. field
+                if not vars[key] then
+                    vars[key] = val:match('^%s*(.-)%s*$')
+                end
+            end
+        end
+
+        -- simple_var = "string"  (exclude gear slot names and 'name')
+        for key, val in clean:gmatch("(%a[%w_]*)%s*=%s*\"([^\"]+)\"") do
+            if not GEAR_SLOT_NAMES[key:lower()] then
+                if not vars[key] then
+                    vars[key] = val:match('^%s*(.-)%s*$')
+                end
+            end
+        end
+        for key, val in clean:gmatch("(%a[%w_]*)%s*=%s*'([^']+)'") do
+            if not GEAR_SLOT_NAMES[key:lower()] then
+                if not vars[key] then
+                    vars[key] = val:match('^%s*(.-)%s*$')
+                end
+            end
+        end
+
+        return vars
+    end
+
     -- TEXT-SCAN superset:
     -- Only capture values for slots where util.group_for_slot(slot) is true (i.e., keys in config.SLOT_GROUP).
     -- Captures:
     --   slot="Item"
     --   slot={name="Item", augments={...}}
+    --   slot=TABLE.field  (resolved via variable collection)
+    --   slot=simple_var   (resolved via variable collection)
     local function walk_text_collect(jobfile)
         local path = util.resolve_gearswap_jobfile_path(jobfile)
         if not path then
@@ -215,6 +329,33 @@ return function(res, util, config, slots, bags, scanmod)
                 -- ignore name="..." inside table values because slot must be a SLOT_GROUP key
                 if item and item ~= '' then
                     add_needed(slot, item)
+                end
+            end
+        end
+
+        -- 2b) Resolve variable references:  slot = TABLE.field  or  slot = simple_var
+        -- Strip comments first so commented-out assignments aren't collected.
+        do
+            local clean = strip_comments(src)
+            local vars = collect_variables(clean)
+
+            -- slot = TABLE.field  (e.g. head = EMPY.Head)
+            for slot, tbl, field in clean:gmatch("([%a_][%w_]*)%s*=%s*(%a[%w_]*)%.(%a[%w_]*)") do
+                if util.group_for_slot(slot) then
+                    local val = vars[tbl .. '.' .. field]
+                    if val and val ~= '' and val:lower() ~= 'empty' then
+                        add_needed(slot, val)
+                    end
+                end
+            end
+
+            -- slot = simple_var  (e.g. head = my_head_gear)
+            for slot, var_ref in clean:gmatch("([%a_][%w_]*)%s*=%s*(%a[%w_]*)") do
+                if util.group_for_slot(slot) and vars[var_ref] then
+                    local val = vars[var_ref]
+                    if val ~= '' and val:lower() ~= 'empty' then
+                        add_needed(slot, val)
+                    end
                 end
             end
         end
