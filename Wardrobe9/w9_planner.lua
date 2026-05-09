@@ -206,9 +206,6 @@ return function(res, util, config, slots, bags, scanmod)
 
     -- ======================================================
     -- Variable collector (TABLE.field and simple var assignments)
-    --
-    -- Builds a lookup: { ["TABLE.field"] = "string value", ["var"] = "string value" }
-    -- Used to resolve indirect gear references like head = EMPY.Head
     -- ======================================================
 
     local GEAR_SLOT_NAMES = {}
@@ -541,6 +538,50 @@ return function(res, util, config, slots, bags, scanmod)
             return a.group < b.group
         end)
 
+        -- ---- Storage slip check ----
+        local on_slips_items = {}
+        do
+            local slip_map = util.read_slip_items()   -- {item_id -> "Slip 01" etc.}
+            if next(slip_map) then
+                -- Build a quick name->id reverse index from res.items.
+                local name_to_ids = {}
+                for id, entry in pairs(res.items) do
+                    if entry and entry.en then
+                        local nm = util.trim(entry.en)
+                        if nm ~= '' then
+                            name_to_ids[nm] = name_to_ids[nm] or {}
+                            name_to_ids[nm][#name_to_ids[nm]+1] = id
+                        end
+                    end
+                end
+
+                local still_missing = {}
+                for _, m in ipairs(missing) do
+                    local ids = name_to_ids[m.name]
+                    local slip_label = nil
+                    if ids then
+                        for _, id in ipairs(ids) do
+                            if slip_map[id] then
+                                slip_label = slip_map[id]
+                                break
+                            end
+                        end
+                    end
+                    if slip_label then
+                        on_slips_items[#on_slips_items+1] = {
+                            name  = m.name,
+                            aug   = m.aug or '',
+                            group = m.group,
+                            slip  = slip_label,
+                        }
+                    else
+                        still_missing[#still_missing+1] = m
+                    end
+                end
+                missing = still_missing
+            end
+        end
+
         local plan = {
             file = path_label,
             path = path_label,
@@ -549,6 +590,7 @@ return function(res, util, config, slots, bags, scanmod)
             excl_present = excl_present,
             in_excluded = in_excluded,
             missing = missing,
+            on_slips = on_slips_items,
             mismatch = mismatch,
             moves = {},
             notes = {},
@@ -975,10 +1017,16 @@ return function(res, util, config, slots, bags, scanmod)
 
     function M.print_plan_header(plan)
         util.msg(('File: %s'):format(plan.path or plan.file))
-        local miss_n = plan.missing and #plan.missing or 0
-        local mm_n   = plan.mismatch and #plan.mismatch or 0
-        util.msg(('Required (text-scan): %d | Present in wardrobes: %d | Located in excluded bags: %d | Missing: %d | Aug-mismatch: %d')
-            :format(plan.total_needed or 0, plan.present or 0, plan.excl_present or 0, miss_n, mm_n))
+        local miss_n  = plan.missing  and #plan.missing  or 0
+        local mm_n    = plan.mismatch and #plan.mismatch or 0
+        local slip_n  = plan.on_slips and #plan.on_slips or 0
+
+        local summary = ('Required (text-scan): %d | Present in wardrobes: %d | Located in excluded bags: %d | Missing: %d | Aug-mismatch: %d')
+            :format(plan.total_needed or 0, plan.present or 0, plan.excl_present or 0, miss_n, mm_n)
+        if slip_n > 0 then
+            summary = summary .. (' | On storage slips: %d'):format(slip_n)
+        end
+        util.msg(summary)
 
         if plan.missing and #plan.missing > 0 then
             util.warn('Missing items (not currently in enabled wardrobes):')
@@ -986,6 +1034,15 @@ return function(res, util, config, slots, bags, scanmod)
                 if i > 30 then util.warn(('...and %d more'):format(#plan.missing-30)); break end
                 local aug_suffix = (m.aug and m.aug ~= '') and (' (Aug: %s)'):format(m.aug) or ''
                 util.warn(('  - Missing "%s"%s'):format(m.name, aug_suffix))
+            end
+        end
+
+        if plan.on_slips and #plan.on_slips > 0 then
+            util.warn(('Items stored on Porter Mog Slips: %d'):format(#plan.on_slips))
+            for i,s in ipairs(plan.on_slips) do
+                if i > 30 then util.warn(('  ...and %d more'):format(#plan.on_slips - 30)); break end
+                local aug_suffix = (s.aug and s.aug ~= '') and (' (Aug: %s)'):format(s.aug) or ''
+                util.warn(('  [%s] %s%s  —  %s'):format(s.group, s.name, aug_suffix, s.slip))
             end
         end
 

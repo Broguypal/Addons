@@ -166,6 +166,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     -- ==========================================================================
 
     local state = {
+        collapsed      = true,
         files          = {},
         selected_set   = {},
         selected_index = nil,
@@ -232,6 +233,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     local img_log_sb_up    = make_img(ASSET.sb_arrow_up)
     local img_log_sb_down  = make_img(ASSET.sb_arrow_down)
 
+    -- Collapse/expand toggle button (in header bar)
+    local img_toggle = make_img(ASSET.chk_off)
+    local t_toggle   = texts.new('')
+
     -- ==========================================================================
     -- Text objects (content only — transparent backgrounds)
     -- ==========================================================================
@@ -275,13 +280,19 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         { id='fill',       label='FILL',       wide=false },
         { id='val_miss',   label='VAL:MISS',   wide=true  },
         { id='val_unused', label='VAL:UNUSED', wide=true  },
+        { id='toggle',     label='+',          toggle=true },
     }
 
     local BTN_BY_ID = {}
 
     for _, def in ipairs(BTN_DEFS) do
-        def.img  = make_img(def.wide and ASSET.btn_wide or ASSET.btn)
-        def.text = texts.new('')
+        if def.toggle then
+            def.img  = img_toggle
+            def.text = t_toggle
+        else
+            def.img  = make_img(def.wide and ASSET.btn_wide or ASSET.btn)
+            def.text = texts.new('')
+        end
         apply_text_defaults(def.text)
         BTN_BY_ID[def.id] = def
     end
@@ -423,7 +434,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         return UI.x, UI.y, PX.PANEL_W, PX.HEADER_H
     end
 
-    -- Generic button rect — works for both normal and wide buttons.
+    -- Generic button rect
     function Rect.btn(which)
         local bx = UI.x + PX.PAD
         local by = UI.y + PX.BTN_Y
@@ -448,8 +459,16 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         end
     end
 
+    -- Toggle button (far right of header)
+    function Rect.toggle_btn()
+        local tx = UI.x + PX.PANEL_W - PX.PAD - PX.CHK_SIZE
+        local ty = UI.y + math.floor((PX.HEADER_H - PX.CHK_SIZE) / 2)
+        return tx, ty, PX.CHK_SIZE, PX.CHK_SIZE
+    end
+
     -- Unified rect lookup used by the data-driven button table.
     function Rect.button(def)
+        if def.toggle then return Rect.toggle_btn() end
         if def.wide then return Rect.val_btn(def.id)
         else             return Rect.btn(def.id) end
     end
@@ -597,7 +616,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     local function set_all_visible(v)
         -- Images
         local all_imgs = {
-            img_panel, img_header,
+            img_panel, img_header, img_toggle,
             img_file_sb_track, img_file_sb_thumb, img_file_sb_up, img_file_sb_down,
             img_log_sb_track,  img_log_sb_thumb,  img_log_sb_up,  img_log_sb_down,
         }
@@ -612,8 +631,16 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
 
         -- Button images + text
         for _, def in ipairs(BTN_DEFS) do
-            if v then def.img:show() else def.img:hide() end
-            def.text:visible(v)
+            if not def.toggle then
+                if v then def.img:show() else def.img:hide() end
+                def.text:visible(v)
+            end
+        end
+
+        -- Toggle (handled separately so collapsed mode can show it)
+        if not v then
+            img_toggle:hide()
+            t_toggle:visible(false)
         end
 
         -- Text objects
@@ -640,6 +667,29 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             return
         end
 
+        -- ---- Collapsed mode: header bar + toggle only ----
+        if state.collapsed then
+            Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
+            Render.ensure_rows(t_log_rows, PX.LOG_ROWS)
+            set_all_visible(false)
+
+            Render.place_img(img_header, UI.x, UI.y, PX.PANEL_W, PX.HEADER_H)
+
+            t_title:pos(UI.x + PX.PAD, UI.y + 4)
+            t_title:text('Wardrobe9 — Mog House')
+            set_color(t_title, C.text)
+            t_title:visible(true)
+
+            local tx, ty, tw, th = Rect.toggle_btn()
+            Render.place_img(img_toggle, tx, ty, tw, th)
+            t_toggle:pos(tx + 3, ty - 1)
+            t_toggle:text('+')
+            set_color(t_toggle, C.btn_txt)
+            t_toggle:bg_alpha(0)
+            t_toggle:visible(true)
+            return
+        end
+
         -- ---- Panel background ----
         Render.place_img(img_panel, UI.x, UI.y, PX.PANEL_W, math.floor(panel_h()))
 
@@ -652,6 +702,17 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         set_color(t_title, C.text)
         t_title:visible(true)
 
+        -- ---- Collapse/expand toggle ----
+        do
+            local tx, ty, tw, th = Rect.toggle_btn()
+            Render.place_img(img_toggle, tx, ty, tw, th)
+            t_toggle:pos(tx + 3, ty - 1)
+            t_toggle:text('-')
+            set_color(t_toggle, C.btn_txt)
+            t_toggle:bg_alpha(0)
+            t_toggle:visible(true)
+        end
+
         -- ---- Status text (truncated to panel width) ----
         local status_max = chars_in(PX.PANEL_W - PX.PAD * 2)
         local status_str = (state.status or ''):sub(1, status_max)
@@ -662,6 +723,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
 
         -- ---- Buttons (data-driven) ----
         for _, def in ipairs(BTN_DEFS) do
+            if not def.toggle then
             local bx, by, bw, bh = Rect.button(def)
             local is_hover = (state.hover == def.id)
 
@@ -682,6 +744,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             set_color(def.text, C.btn_txt)
             def.text:bg_alpha(0)
             def.text:visible(true)
+            end -- if not def.toggle
         end
 
         -- ---- File rows ----
@@ -998,15 +1061,17 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             return
         end
 
-        state.status = ('VAL:MISS — %d required | %d in wardrobes | %d missing | %d in other bags  [%s]')
+        state.status = ('VAL:MISS — %d required | %d in wardrobes | %d missing | %d in other bags | %d on slips  [%s]')
             :format(result.total, result.in_wardrobes,
                     #result.missing_entirely, #result.in_bags_not_wardrobes,
+                    result.on_slips and #result.on_slips or 0,
                     result.label)
 
         util.msg(('Validate Missing — File(s): %s'):format(result.label))
         util.msg(('Required items: %d | In wardrobes: %d'):format(result.total, result.in_wardrobes))
 
-        if #result.missing_entirely == 0 and #result.in_bags_not_wardrobes == 0 then
+        if #result.missing_entirely == 0 and #result.in_bags_not_wardrobes == 0
+            and (not result.on_slips or #result.on_slips == 0) then
             util.msg('All referenced gear is present in your wardrobes.')
         end
 
@@ -1016,6 +1081,15 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
                 if i > 80 then util.warn(('  ...and %d more'):format(#result.missing_entirely - 80)); break end
                 local aug_suffix = (m.aug ~= '') and (' (Aug: %s)'):format(m.aug) or ''
                 util.warn(('  [%s] %s%s'):format(m.group, m.name, aug_suffix))
+            end
+        end
+
+        if result.on_slips and #result.on_slips > 0 then
+            util.warn(('--- Stored on Porter Mog Slips: %d ---'):format(#result.on_slips))
+            for i, s in ipairs(result.on_slips) do
+                if i > 80 then util.warn(('  ...and %d more'):format(#result.on_slips - 80)); break end
+                local aug_suffix = (s.aug ~= '') and (' (Aug: %s)'):format(s.aug) or ''
+                util.warn(('  [%s] %s%s  —  %s'):format(s.group, s.name, aug_suffix, s.slip))
             end
         end
 
@@ -1092,6 +1166,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             fill       = do_exec_fill,
             val_miss   = do_val_miss,
             val_unused = do_val_unused,
+            toggle     = function()
+                state.collapsed = not state.collapsed
+                layout()
+            end,
         }
         for _, def in ipairs(BTN_DEFS) do
             def.action = actions[def.id]

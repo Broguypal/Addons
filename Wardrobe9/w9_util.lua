@@ -25,6 +25,10 @@ return function(config)
         ui_logger = fn
     end
 
+    function M._get_ui_logger()
+        return ui_logger
+    end
+
     local function push_ui(level, s)
         if ui_logger then
             pcall(ui_logger, level, s)
@@ -125,11 +129,6 @@ return function(config)
 
     -- ======================================================
     -- Augment normalization + item keying
-    --
-    -- These helpers produce strings compatible with the scan cache format:
-    --   "Aug1;Aug2;Aug3" (sorted, ';' separated)
-    -- and item keys:
-    --   "Item Name" or "Item Name|Aug1;Aug2"
     -- ======================================================
 
     function M.canon_text(s)
@@ -222,6 +221,78 @@ return function(config)
     function M.lua_quote(s)
         s = tostring(s or '')
         return s:gsub('\\','\\\\'):gsub('"','\\"')
+    end
+
+    -- ======================================================
+    -- Storage slip lookup
+    -- ======================================================
+
+    function M.read_slip_items()
+        local on_slips = {}
+        local ok_req, slips = pcall(require, 'slips')
+        if not ok_req or not slips then return on_slips end
+
+        local ok, result = pcall(slips.get_player_items)
+        if not ok or type(result) ~= 'table' then return on_slips end
+
+        local SEARCH_BAGS = {
+            {id=0,  name='Inventory'},
+            {id=1,  name='Safe'},
+            {id=2,  name='Storage'},
+            {id=4,  name='Locker'},
+            {id=5,  name='Satchel'},
+            {id=6,  name='Sack'},
+            {id=7,  name='Case'},
+            {id=8,  name='Wardrobe'},
+            {id=10, name='Wardrobe 2'},
+            {id=11, name='Wardrobe 3'},
+            {id=12, name='Wardrobe 4'},
+            {id=13, name='Wardrobe 5'},
+            {id=14, name='Wardrobe 6'},
+            {id=15, name='Wardrobe 7'},
+            {id=16, name='Wardrobe 8'},
+            {id=17, name='Safe 2'},
+        }
+
+        local slip_ids_to_find = {}
+        for slip_id, _ in pairs(result) do
+            slip_ids_to_find[slip_id] = true
+        end
+
+        local slip_bag_name = {}   -- slip_item_id -> bag display name
+        if windower and windower.ffxi and windower.ffxi.get_items then
+            for _, bag in ipairs(SEARCH_BAGS) do
+                local bag_ok, contents = pcall(windower.ffxi.get_items, bag.id)
+                if bag_ok and contents and contents.max then
+                    for slot = 1, contents.max do
+                        local entry = contents[slot]
+                        if entry and entry.id and slip_ids_to_find[entry.id] then
+                            slip_bag_name[entry.id] = bag.name
+                        end
+                    end
+                end
+            end
+        end
+
+        for slip_id, item_list in pairs(result) do
+            if type(item_list) == 'table' then
+                local slip_num = slips.storages and slips.storages.find
+                    and slips.storages:find(slip_id)
+                local label = slip_num and ('Slip %02d'):format(slip_num) or 'Slip'
+
+                local bag = slip_bag_name[slip_id]
+                if bag then
+                    label = label .. (' (%s)'):format(bag)
+                end
+
+                for _, item_id in ipairs(item_list) do
+                    if item_id and item_id ~= 0 then
+                        on_slips[item_id] = label
+                    end
+                end
+            end
+        end
+        return on_slips
     end
 
     -- ======================================================

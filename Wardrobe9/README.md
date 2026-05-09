@@ -1,185 +1,241 @@
 # Wardrobe9
 
-**Wardrobe9** is a Windower 4 addon for *FFXI* that
-automatically analyzes your GearSwap Lua files, checks your wardrobes
-for the required items, and intelligently swaps gear into place.
+**Wardrobe9** is a Windower 4 addon for *Final Fantasy XI* that
+reads your GearSwap Lua files, checks your wardrobes for the gear
+they reference, and moves everything into place automatically.
 
-Its purpose is simple:
-
-> Make sure the gear referenced in your Lua files is actually present in
-> your wardrobes --- and fix it automatically when it isn't.
+> Make sure the gear in your Lua files is actually in your wardrobes —
+> and fix it when it isn't.
 
 ------------------------------------------------------------------------
 
-## Important Usage Requirement
+## How It Works
 
-Wardrobe9 is designed to be used **through its User Interface inside your Mog House**.
+Wardrobe9 has two interfaces that appear automatically:
 
--   The **full interface is only available while you are inside your Mog House.**
--   This is where scanning, planning, and execution occur.
+-   **Mog House panel** — Opens when you enter your Mog House. This is
+    where you scan your bags, plan wardrobe moves, and execute them.
 
-**Note 1**: In windowed mode, button positions may appear slightly offset
-from their click targets. This is a known Windower 4 limitation where
-text rendering and mouse coordinates can diverge. Borderless Windowed 
-or Fullscreen mode is recommended for the best experience.
+-   **Porter Moogle panel** — Opens when you walk near a Porter Moogle.
+    This lets you retrieve gear stored on Porter Mog Slips.
 
-**Note 2**: If your cursor appears behind the addon interface, this is typically 
-caused by the Hardware Mouse setting being disabled in Windower 4. To resolve this, 
-open  the Windower launcher, select Edit (pencil icon), navigate to the Game tab, and 
-enable the Hardware Mouse option.
+Both panels start collapsed (just a title bar) to stay out of your way.
+Click the **[+]** button on the right side to expand, or **[-]** to
+collapse again. You can drag the title bar to reposition either panel.
 
 ------------------------------------------------------------------------
 
-## What Wardrobe9 Does
+## Mog House
 
-Wardrobe9 reads your selected GearSwap file and:
+### Step-by-Step
 
-1.  Identifies every item referenced in the Lua.
-2.  Checks whether you currently have that item.
-3.  Determines whether it is already in a wardrobe.
-4.  Automatically moves it into an appropriate wardrobe if needed.
-5.  Offers two execution modes: **Swap** (replaces unused items of the
-    same equipment type to make room) or **Fill** (uses free wardrobe
-    slots first, only swapping as a last resort).
-6.  Validates your wardrobes for missing or unused gear across your
-    selected Lua files.
+1.  **SCAN** — Reads all of your bags and builds a list of everything
+    you own. Always do this first.
 
-This removes the need to manually check bags, compare sets, or move
-items one by one.
+2.  **Select your Lua file(s)** — Check one or more GearSwap files from
+    the list. Wardrobe9 finds all `.lua` files in your GearSwap `data`
+    folder automatically.
 
-------------------------------------------------------------------------
+3.  **PLAN** — Compares the gear in your Lua files against what's in
+    your wardrobes and shows you what needs to move.
 
-## Core Features
+4.  **SWAP** or **FILL** — Executes the plan.
 
-### 🔎 Lua File Analysis
+### SWAP vs FILL
 
--   Scans your selected GearSwap job files.
--   Extracts all gear references from your sets.
--   Builds a complete list of required items.
+-   **SWAP** — Makes room by swapping out unused gear of the same type
+    (ring for ring, body for body, etc.). Uses free slots as a fallback.
 
-You immediately see what your Lua expects you to have equipped.
+-   **FILL** — Uses free wardrobe slots first. Only swaps something out
+    if there's no empty space left.
 
-------------------------------------------------------------------------
+### Validation
 
-### 📦 Wardrobe Verification
+-   **VAL:MISS** — Shows gear referenced in your Lua files that isn't in
+    your wardrobes. Tells you if it's missing entirely, stored on a
+    Porter Mog Slip, or sitting in another bag.
 
--   Checks your wardrobes and inventory for each referenced item.
--   Clearly indicates:
-    -   Items already in wardrobes.
-    -   Items found but not currently stored in wardrobes.
-    -   Items not found at all.
-
-This provides a fast validation of your job file against your actual
-gear.
+-   **VAL:UNUSED** — Shows gear sitting in your wardrobes that isn't
+    referenced by your selected Lua files. Helpful for freeing up space.
 
 ------------------------------------------------------------------------
 
-### 🔁 Automatic Swapping & Filling
+## Porter Moogle
 
-If an item is found but not stored in a wardrobe, Wardrobe9 can move it
-in using one of two modes:
+The Porter Moogle panel appears when you're near a Porter Moogle and
+disappears when you walk away.
 
--   **Swap mode** — Prioritises swapping out an unused item of the same
-    equipment type (ring-for-ring, body-for-body, etc.) to make room.
-    If no same-type item is available to evict, it falls back to any
-    free wardrobe slot.
--   **Fill mode** — Prioritises filling empty wardrobe slots first.
-    Only evicts an unused same-type item if no free space remains.
+### Step-by-Step
 
-Both modes are available as buttons in the UI after planning.
-Movements are always planned first, then executed in a controlled way.
+1.  **Select your Lua file(s)** — Same file list as the Mog House panel.
 
-No more manual inventory juggling.
+2.  **SCAN SLIPS** — Identifies which gear from your Lua files is stored
+    on Porter Mog Slips. Shows you which slips are needed and whether
+    they're in your inventory.
+
+3.  **Choose how to retrieve:**
+
+    -   **RETRIEVE** — Pulls items from the Porter Moogle into your
+        inventory.
+
+    -   **RETR+FILL** — Retrieves items, then moves them into your
+        wardrobes automatically.
+
+    -   **RETR+STORE** — Retrieves items, then stores them in your Mog
+        Satchel, Mog Case, or Mog Sack (the portable bags you can
+        access outside your Mog House).
+
+**Note:** Your Porter Mog Slips must be in your inventory before you can
+retrieve items. SCAN SLIPS will warn you if any slips are stored
+elsewhere.
 
 ------------------------------------------------------------------------
 
-### 🧠 Smart Planning System
+## Automatic Lua Parsing
 
-Wardrobe9 follows a safe workflow inside the UI:
+The planner reads your GearSwap Lua files and automatically picks up
+gear from:
 
-1.  **Scan** -- Build a list of all items you own and identify .lua files in your Gearswap folder.
-2.  **Plan** -- Compare your gear against the selected Luas and preview the proposed moves.
-3.  **Swap** or **Fill** -- Execute the plan using your preferred mode.
-4.  **VAL MISS** or **VAL UNUSED** -- Optionally validate your gear for missing or unused items.
+-   Direct assignments like `head = "Pummeler's Mask +3"`.
+-   Table assignments with augments like `head = { name = "...", augments = {...} }`.
+-   Variable references like `head = EMPY.Head` or `head = my_var` —
+    resolved automatically by scanning the file for variable definitions.
 
-------------------------------------------------------------------------
-
-### ✅ Gear Validation
-
-Wardrobe9 includes two validation tools that cross-reference your
-selected GearSwap Lua files against your scan cache:
-
--   **VAL MISS** — Lists items referenced in your Luas that are not
-    currently in your wardrobes. Results are split into two categories:
-    items missing entirely (not found in any bag) and items found in
-    non-wardrobe bags but not yet moved into a wardrobe.
-
--   **VAL UNUSED** — Lists items sitting in your wardrobes that are not
-    referenced by any of your selected Lua files. Useful for identifying
-    gear that can be safely moved out to free up wardrobe space.
-
-Both tools respect augmented gear. Protected slot groups
-and locked items (configured in `w9_config.lua`) are excluded from
-the unused report.
+No setup is needed for any of this. If you use unconventional variable
+patterns that the parser can't resolve on its own, you can add them to
+`CUSTOM_GEAR_VARIABLES` in the config file (see below).
 
 ------------------------------------------------------------------------
 
 ## Configuration (w9_config.lua)
 
-Wardrobe9 includes a configuration file (`w9_config.lua`) that allows
-you to adjust how the addon behaves.
+You can adjust Wardrobe9's behavior by editing `w9_config.lua`. Most
+users won't need to change anything beyond locked items.
 
-Common configurable options include:
+### Locked Items
 
--   Setting the default position of the User Interface.
--   Locking specific items from movement.
--   Preventing certain equipment categories (weapons/Head/etc.) from being moved.
--	Setting source bags to be ignored.
--	Defining custom gear variables (`ex. "WAR_AF_HEAD"`) to ensure gear isn't missed.
+Items you never want moved. Useful for convenience gear like Warp Ring.
 
+```lua
+LOCKED_ITEMS = {
+    ["Warp Ring"]         = true,
+    ["Dim. Ring (Holla)"] = true,
+    ["Echad Ring"]        = true,
+},
+```
 
-### Defaults
+### Protected Slot Groups
 
-By default, **weapons** and **items in a players inventory** are *not* moved in automatic wardrobe
-management.
+Entire equipment categories you never want moved. Weapons are protected
+by default.
 
-This is intentional to prevent accidental movement of situational weapons and to leave your inventory untouched.
-However, this behavior can be changed in the w9_config.lua file.
+```lua
+PROTECTED_SLOT_GROUPS = {
+    weapon = true,
+},
+```
 
-------------------------------------------------------------------------
+Available groups: `weapon`, `head`, `body`, `hands`, `legs`, `feet`,
+`neck`, `waist`, `back`, `ear`, `ring`, `ammo`.
 
-## Additional Practical Benefits
+### Destination Wardrobes
 
-While its main purpose is GearSwap wardrobe management, Wardrobe9 also
-allows you to Quickly generate a full structured list of all items in your
-inventory via the scan cache.
+Which wardrobes Wardrobe9 is allowed to move items into. All eight are
+enabled by default. Set any to `false` to exclude it.
+
+```lua
+DEST_BAGS = {
+    ["Wardrobe"]   = true,
+    ["Wardrobe 2"] = true,
+    -- through Wardrobe 8
+},
+```
+
+**Note:** If a Wardrobe is not activated you do not need to change this 
+to false as Wardrobe9 ignores these automatically.
+
+### Return Bag Priority
+
+When Wardrobe9 evicts an unused item from a wardrobe, it sends it to the
+first available bag in this list.
+
+```lua
+RETURN_BAG_ORDER = {
+    "Safe", "Safe 2", "Storage",
+    "Locker", "Satchel", "Sack", "Case",
+},
+```
+
+### Source Bag Exclusions
+
+Bags that Wardrobe9 will never pull items *from*. Inventory is excluded
+by default so Wardrobe9 won't grab things out of your active inventory.
+
+```lua
+SOURCE_BAG_EXCLUDE = {
+    ["inventory"] = true,
+},
+```
+
+### Chat Logging
+
+Set to `true` to also print messages to the FFXI chat log. Default is
+`false` (messages only appear in the Wardrobe9 panel).
+
+```lua
+LOG_TO_CHAT = false,
+```
+
+### UI Position
+
+Where the panel appears when it first opens. You can drag it after that.
+
+```lua
+UI_START_X = 420,
+UI_START_Y = 220,
+```
+
+### Custom Gear Variables (Advanced)
+
+Only needed if you use variable names in your Lua that the automatic
+parser can't resolve — for example, a variable that is defined but never
+directly assigned to a gear slot. Add the variable name under the
+appropriate slot group so the planner knows to look for it.
+
+```lua
+CUSTOM_GEAR_VARIABLES = {
+    head = {"WAR_AF_HEAD"},
+    body = {},
+    -- ...
+},
+```
 
 ------------------------------------------------------------------------
 
 ## Installation
 
-Place the `wardrobe9` folder inside your Windower `addons` directory and
-load it while inside your Mog House to access the full interface.
+1.  Place the `wardrobe9` folder in your Windower `addons` directory.
+2.  In-game, load with `//lua load wardrobe9`.
+3.  Enter your Mog House or walk near a Porter Moogle.
 
 ------------------------------------------------------------------------
 
-## Why Use Wardrobe9?
+## Notes
 
-Managing multiple jobs with full wardrobes is tedious and error-prone.
+-   In windowed mode, button positions may appear slightly offset from
+    their click targets. This is a Windower 4 limitation. Borderless
+    Windowed or Fullscreen mode is recommended.
 
-Wardrobe9 removes that friction by:
+-   If your cursor appears behind the addon interface, enable Hardware
+    Mouse in the Windower launcher (Edit → Game tab → Hardware Mouse).
 
--   Connecting your Luas directly to your wardrobes.
--   Showing you exactly what's missing.
--   Identifying unused gear that can be cleared out.
--   Fixing storage automatically.
+-   Full wardrobe management (SCAN, PLAN, SWAP, FILL) requires being
+    inside your Mog House.
 
-It turns wardrobe management from a manual chore into a simple, visual
-workflow.
+-   Porter Mog Slips must be in your inventory before retrieval.
 
 ------------------------------------------------------------------------
 
 ## License
 
-BSD 3-Clause License
-Copyright (c) 2026 Broguypal
+BSD 3-Clause License — Copyright (c) 2026 Broguypal

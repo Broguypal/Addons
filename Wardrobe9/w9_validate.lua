@@ -56,11 +56,6 @@ return function(res, util, config, bags, scanmod, planner)
 
     -- ======================================================
     -- VAL: List all missing
-    --
-    -- For each item referenced by the selected luas:
-    --   List A: Not found in ANY bag (missing entirely)
-    --   List B: Found in non-wardrobe bags but absent
-    --           from wardrobes (present in bags only)
     -- ======================================================
 
     function M.validate_missing(jobfiles)
@@ -146,27 +141,63 @@ return function(res, util, config, bags, scanmod, planner)
         table.sort(missing_entirely, sort_fn)
         table.sort(in_bags_not_wardrobes, sort_fn)
 
+        -- Check storage slips for items that are missing entirely.
+        local on_slips = {}
+        do
+            local slip_map = util.read_slip_items()
+            if next(slip_map) then
+                local name_to_ids = {}
+                for id, entry in pairs(res.items) do
+                    if entry and entry.en then
+                        local nm = util.trim(entry.en)
+                        if nm ~= '' then
+                            name_to_ids[nm] = name_to_ids[nm] or {}
+                            name_to_ids[nm][#name_to_ids[nm]+1] = id
+                        end
+                    end
+                end
+
+                local still_missing = {}
+                for _, m in ipairs(missing_entirely) do
+                    local ids = name_to_ids[m.name]
+                    local slip_label = nil
+                    if ids then
+                        for _, id in ipairs(ids) do
+                            if slip_map[id] then
+                                slip_label = slip_map[id]
+                                break
+                            end
+                        end
+                    end
+                    if slip_label then
+                        on_slips[#on_slips+1] = {
+                            name  = m.name,
+                            aug   = m.aug or '',
+                            group = m.group,
+                            slip  = slip_label,
+                        }
+                    else
+                        still_missing[#still_missing+1] = m
+                    end
+                end
+                missing_entirely = still_missing
+            end
+        end
+
+        table.sort(on_slips, sort_fn)
+
         return {
             label                 = label,
             total                 = total,
             in_wardrobes          = in_wardrobes_count,
             missing_entirely      = missing_entirely,
             in_bags_not_wardrobes = in_bags_not_wardrobes,
+            on_slips              = on_slips,
         }
     end
 
     -- ======================================================
     -- VAL: List all unused
-    --
-    -- Compare scan cache (wardrobe items only) against
-    -- all gear referenced in the selected luas.
-    -- Items present in wardrobes but NOT referenced = unused.
-    --
-    -- Matching rules (augment-strict):
-    --   * If the lua specifies augments, only the exact key
-    --     (name|aug) counts as "used".
-    --   * If the lua references an item by name without
-    --     augments, ALL copies of that item are "used".
     -- ======================================================
 
 function M.validate_unused(jobfiles)

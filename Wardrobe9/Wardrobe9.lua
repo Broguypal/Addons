@@ -32,12 +32,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'wardrobe9'
 _addon.author = 'Broguypal'
-_addon.version = '2.0'
+_addon.version = '2.1'
 
 local res = require('resources')
 local extdata = require('extdata')
 
--- Addon path + scan cache file
 local ADDON_PATH = windower.addon_path or (_addon and _addon.path) or 'addons/wardrobe9/'
 local SCAN_FILE  = ADDON_PATH .. 'scan_cache.lua'
 
@@ -55,3 +54,20 @@ local validate = load_local('w9_validate.lua')(res, util, config, bags, scan, pl
 local execmod  = load_local('w9_executor.lua')(res, extdata, util)
 local mousemod = load_local('w9_mouse.lua')
 local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod, validate)
+
+local porter    = load_local('w9_porter.lua')(res, util, config, slots, bags, scan, planner)
+local porter_ui = load_local('w9_porter_ui.lua')(res, util, config, planner, porter, scan, execmod, bags)
+
+windower.register_event('incoming chunk', function(id, data, modified, injected, blocked)
+    porter.on_incoming_chunk(id, data)
+end)
+
+windower.register_event('prerender', function()
+    porter_ui.proximity_check()
+end)
+
+windower.register_event('mouse', function(type, x, y, delta, blocked)
+    if porter_ui.is_visible() then
+        return porter_ui.on_mouse(type, x, y, delta, blocked)
+    end
+end)
