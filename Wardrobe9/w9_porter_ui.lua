@@ -58,9 +58,10 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         BTN_GAP     = 8,
         BTN_Y       = 30,
         BTN_ROW2_Y  = 52,
+        BTN_ROW3_Y  = 74,
 
-        STATUS_Y    = 76,
-        FILE_Y      = 94,
+        STATUS_Y    = 98,
+        FILE_Y      = 116,
         FILE_ROWS   = 5,
 
         SECTION_GAP = 16,
@@ -136,7 +137,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         files          = {},
         selected_set   = {},
         selected_index = nil,
-        status         = 'Ready. Select lua(s) and press SCAN SLIPS.',
+        status         = 'Ready. Select lua(s) and press RETRIEVAL SCAN.',
         hover          = nil,
 
         file_scroll = 0,
@@ -152,6 +153,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         log_sb_dragging  = false, log_sb_drag_offset  = 0,
 
         last_identify  = nil,
+        last_compat    = nil,
     }
 
     -- ==========================================================================
@@ -224,11 +226,13 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
     -- ==========================================================================
 
     local BTN_DEFS = {
-        { id='identify',      label='SCAN SLIPS',  row=1 },
-        { id='retrieve',      label='RETRIEVE',    row=1 },
-        { id='retrieve_fill', label='RETR+FILL',   row=2 },
-        { id='retrieve_store',label='RETR+STORE',  row=2 },
-        { id='toggle',        label='+',           toggle=true },
+        { id='identify',       label='RETRIEVAL SCAN',    row=1 },
+        { id='retrieve',       label='RETRIEVE',      row=1 },
+        { id='retrieve_fill',  label='RETR+FILL',     row=2 },
+        { id='retrieve_store', label='RETR+STORE',    row=2 },
+        { id='check_compat',   label='DEPOSIT SCAN',   row=3 },
+        { id='deposit_slips',  label='DEPOSIT', row=3 },
+        { id='toggle',         label='+',             toggle=true },
     }
 
     for _, def in ipairs(BTN_DEFS) do
@@ -294,10 +298,13 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
     function Rect.button(def)
         if def.toggle then return Rect.toggle_btn() end
         local bx = UI.x + PX.PAD
-        local row_y = (def.row == 2) and PX.BTN_ROW2_Y or PX.BTN_Y
+        local row_y
+        if def.row == 3 then row_y = PX.BTN_ROW3_Y
+        elseif def.row == 2 then row_y = PX.BTN_ROW2_Y
+        else row_y = PX.BTN_Y end
         local by = UI.y + row_y
         -- Left or right in the row
-        if def.id == 'identify' or def.id == 'retrieve_fill' then
+        if def.id == 'identify' or def.id == 'retrieve_fill' or def.id == 'check_compat' then
             return bx, by, PX.BTN_W, PX.BTN_H
         else
             return bx + PX.BTN_W + PX.BTN_GAP, by, PX.BTN_W, PX.BTN_H
@@ -672,7 +679,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
             }
         end
         ensure_file_scroll_valid()
-        state.status = ('Found %d GearSwap lua(s). Select file(s) and press SCAN SLIPS.'):format(#state.files)
+        state.status = ('Found %d GearSwap lua(s). Select file(s) and press RETRIEVAL SCAN.'):format(#state.files)
     end
 
     local function selected_files_list()
@@ -694,7 +701,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         local files = selected_files_list()
         if #files == 0 then
             state.status = 'Check at least one lua file first.'
-            push_log('warn', 'Select lua file(s) before pressing SCAN SLIPS.')
+            push_log('warn', 'Select lua file(s) before pressing RETRIEVAL SCAN.')
             layout()
             return
         end
@@ -780,8 +787,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         end
 
         if not state.last_identify then
-            state.status = 'Press SCAN SLIPS first.'
-            push_log('warn', 'You must press SCAN SLIPS before RETRIEVE.')
+            state.status = 'Press RETRIEVAL SCAN first.'
+            push_log('warn', 'You must press RETRIEVAL SCAN before RETRIEVE.')
             layout()
             return
         end
@@ -1016,12 +1023,166 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         end)
     end
 
+    -- ======================================================
+    -- CHECK SLIPS: scan inventory for slip-compatible items
+    -- ======================================================
+
+    local function do_check_compat()
+        if portermod.is_busy() then
+            push_log('warn', 'Porter operation in progress.')
+            return
+        end
+
+        clear_log()
+        state.last_compat = nil
+
+        local result, err = portermod.check_slip_compatible()
+        if not result then
+            state.status = tostring(err)
+            push_log('err', tostring(err))
+            layout()
+            return
+        end
+
+        state.last_compat = result
+
+        if #result.items == 0 then
+            state.status = 'No slip-compatible items found in inventory.'
+            push_log('msg', 'Scanned inventory: no items can be deposited into slips.')
+            layout()
+            return
+        end
+
+        state.status = ('%d item(s) in inventory can be stored on slips.'):format(#result.items)
+
+        push_log('msg', ('Found %d item(s) that can be deposited into slips:'):format(#result.items))
+
+        -- Group by slip
+        local by_slip = {}
+        for _, item in ipairs(result.items) do
+            by_slip[item.slip_label] = by_slip[item.slip_label] or {}
+            by_slip[item.slip_label][#by_slip[item.slip_label]+1] = item
+        end
+
+        local slip_labels = {}
+        for k in pairs(by_slip) do slip_labels[#slip_labels+1] = k end
+        table.sort(slip_labels)
+
+        for _, label in ipairs(slip_labels) do
+            local items = by_slip[label]
+            local slip_item_id = items[1].slip_item_id
+            local in_inv = result.slips_in_inv[slip_item_id]
+            local loc_info = result.slips_not_in_inv[slip_item_id]
+            local inv_tag
+            if in_inv then
+                inv_tag = ' (in inventory)'
+            elseif type(loc_info) == 'string' then
+                inv_tag = (' (in %s)'):format(loc_info)
+            else
+                inv_tag = ' (location unknown)'
+            end
+            push_log('msg', ('--- %s%s ---'):format(label, inv_tag))
+            if not in_inv then
+                if type(loc_info) == 'string' then
+                    push_log('err', ('  WARNING: %s is in your %s. Move it to inventory to deposit items.'):format(label, loc_info))
+                else
+                    push_log('err', ('  WARNING: %s is not in your inventory and could not be located.'):format(label))
+                end
+            end
+            for _, item in ipairs(items) do
+                push_log('msg', ('  %s'):format(item.name))
+            end
+        end
+
+        -- Summary
+        local missing_count = 0
+        for _ in pairs(result.slips_not_in_inv or {}) do missing_count = missing_count + 1 end
+        if missing_count > 0 then
+            push_log('warn', ('Note: %d slip(s) are NOT in your inventory. Move them to inventory before pressing DEPOSIT SLIPS.'):format(missing_count))
+        else
+            push_log('ok', 'All required slips are in your inventory. Press DEPOSIT SLIPS to store items.')
+        end
+
+        layout()
+    end
+
+    -- ======================================================
+    -- DEPOSIT SLIPS: store inventory items into slips
+    -- ======================================================
+
+    local function do_deposit_slips()
+        if portermod.is_busy() then
+            push_log('warn', 'Porter operation in progress.')
+            return
+        end
+
+        if not state.last_compat then
+            state.status = 'Press DEPOSIT SCAN first.'
+            push_log('warn', 'You must press DEPOSIT SCAN before DEPOSIT.')
+            layout()
+            return
+        end
+
+        if #state.last_compat.items == 0 then
+            push_log('msg', 'Nothing to deposit.')
+            layout()
+            return
+        end
+
+        -- Re-check NPC proximity
+        if not portermod.find_porter_npc() then
+            push_log('err', 'Porter Moogle is not in range. Move closer and try again.')
+            layout()
+            return
+        end
+
+        -- Re-scan for fresh data
+        local result, err = portermod.check_slip_compatible()
+        if not result then
+            push_log('err', tostring(err))
+            layout()
+            return
+        end
+
+        state.last_compat = result
+
+        if #result.items == 0 then
+            push_log('msg', 'No items to deposit (inventory changed).')
+            layout()
+            return
+        end
+
+        clear_log()
+        push_log('msg', ('Attempting to deposit %d item(s) into slips...'):format(#result.items))
+        state.status = 'Depositing items into slips...'
+        layout()
+
+        local ok = portermod.deposit_into_slips(result, function(success)
+            state.last_compat = nil
+            if success then
+                push_log('ok', 'Deposit complete. All items stored on slips.')
+                state.status = 'Deposit complete.'
+            else
+                push_log('warn', 'Deposit finished with warnings. Check log above.')
+                state.status = 'Deposit finished. Check log.'
+            end
+            layout()
+        end)
+
+        if not ok then
+            state.status = 'Deposit failed. Check log.'
+            layout()
+        end
+    end
+
     -- Attach actions
     local action_map = {
         identify       = do_identify,
         retrieve       = do_retrieve,
         retrieve_fill  = do_retrieve_fill,
         retrieve_store = do_retrieve_store,
+        check_compat   = do_check_compat,
+        deposit_slips  = do_deposit_slips,
         toggle         = function()
             state.collapsed = not state.collapsed
             layout()
@@ -1254,6 +1415,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         state.log_sb_dragging  = false
         state.hover            = nil
         state.last_identify    = nil
+        state.last_compat      = nil
 
         -- Redirect util messages to this panel's log while porter UI is active.
         _saved_ui_logger = util._get_ui_logger and util._get_ui_logger() or nil
@@ -1264,12 +1426,16 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         push_log('msg', '')
         push_log('msg', 'How to use:')
         push_log('msg', '  1. Check one or more GearSwap lua files below.')
-        push_log('msg', '  2. Press SCAN SLIPS to identify gear stored on slips.')
+        push_log('msg', '  2. Press RETRIEVAL to identify gear stored on slips.')
         push_log('msg', '  3. Choose a retrieve action:')
         push_log('msg', '')
         push_log('msg', '  RETRIEVE    — Withdraw items to inventory only.')
         push_log('msg', '  RETR+FILL   — Retrieve, then move into free wardrobe slots.')
         push_log('msg', '  RETR+STORE  — Retrieve, then store in Satchel/Case/Sack.')
+        push_log('msg', '')
+        push_log('msg', '  Or deposit items INTO slips:')
+        push_log('msg', '  DEPOSIT SCAN   — Scan inventory for slip-compatible items.')
+        push_log('msg', '  DEPOSIT  — Store those items into their slips.')
         refresh_file_list()
         layout()
     end
@@ -1281,6 +1447,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         state.log_sb_dragging  = false
         state.hover            = nil
         state.last_identify    = nil
+        state.last_compat      = nil
         if portermod.is_busy() then
             portermod.abort()
         end

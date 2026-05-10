@@ -78,12 +78,22 @@ return function(res, util, config, slots, bags, scanmod, planner)
     local STATE_SELECTING = 2  -- 0x05B item-select sent, waiting for 0x05C
     local STATE_CLOSING   = 3  -- item retrieved, closing menu via escape
 
+    -- Deposit states (storing items INTO slips)
+    local STATE_DEPOSIT_TRADED  = 4  -- 0x036 sent (slip+item), waiting for 0x034
+    local STATE_DEPOSIT_CLOSING = 5  -- store menu received, closing via escape
+
 	local state        = STATE_IDLE
     local retrieve_ids = {}        -- { [item_id] = true }
     local on_complete  = nil       -- callback when retrieval finishes
 
     -- Track what we're currently retrieving so we can log it on 0x05C.
     local pending_item_name = nil
+
+    -- Deposit state
+    local deposit_queue    = {}    -- { {item_id, item_name, slip_item_id, slip_label}, ... }
+    local deposit_index    = 0
+    local on_deposit_complete = nil
+    local pending_deposit_name = nil
 
     -- ======================================================
     -- Trade timeout safety net
@@ -116,6 +126,19 @@ return function(res, util, config, slots, bags, scanmod, planner)
 
     function M.is_busy()
         return state ~= STATE_IDLE
+    end
+
+    -- Helper: find an item in inventory with guaranteed slot field.
+    local function find_inventory_item(item_id)
+        local inv = windower.ffxi.get_items(0)
+        if not inv or not inv.max then return nil end
+        for slot = 1, inv.max do
+            local entry = inv[slot]
+            if entry and entry.id == item_id and entry.status == 0 then
+                return {id = entry.id, count = entry.count or 1, slot = slot, status = entry.status}
+            end
+        end
+        return nil
     end
 
     -- ======================================================
@@ -331,6 +354,95 @@ return function(res, util, config, slots, bags, scanmod, planner)
             slips_in_inv     = slips_in_inv,
             slips_not_in_inv = slips_not_in_inv,
             free_space       = inventory_free_space(),
+        }
+    end
+
+    -- ======================================================
+    -- Check Slip Compatible: find inventory items that can
+    -- be stored on slips but currently aren't.
+    -- ======================================================
+
+    function M.check_slip_compatible()
+        if not slips_lib then
+            return nil, 'The slips library is not available. Ensure it is installed in Windower.'
+        end
+
+        if not slips_lib.items or not slips_lib.storages then
+            return nil, 'Slips library data not available (items/storages missing).'
+        end
+
+        -- Build reverse lookup: item_id -> slip info (all possible items across all slips).
+        local item_to_slip = {}
+        for slip_num = 1, #slips_lib.storages do
+            local slip_item_id = slips_lib.storages[slip_num]
+            if slip_item_id then
+                local item_list = slips_lib.items[slip_item_id]
+                if type(item_list) == 'table' then
+                    local label = ('Slip %02d'):format(slip_num)
+                    for _, item_id in ipairs(item_list) do
+                        if item_id and item_id ~= 0 then
+                            item_to_slip[item_id] = {
+                                slip_item_id = slip_item_id,
+                                slip_num     = slip_num,
+                                slip_label   = label,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Scan inventory for items that match a slip entry.
+        local inv = windower.ffxi.get_items(0)
+        if not inv or not inv.max then
+            return nil, 'Could not read inventory.'
+        end
+
+        local results = {}
+        local slip_ids_needed = {}
+
+        for slot = 1, inv.max do
+            local entry = inv[slot]
+            if entry and entry.id and entry.id ~= 0 and entry.status == 0 then
+                local slip_info = item_to_slip[entry.id]
+                if slip_info then
+                    local r = res.items[entry.id]
+                    local name = r and r.en or tostring(entry.id)
+                    results[#results+1] = {
+                        name         = name,
+                        item_id      = entry.id,
+                        slot         = slot,
+                        count        = entry.count or 1,
+                        slip_label   = slip_info.slip_label,
+                        slip_item_id = slip_info.slip_item_id,
+                        slip_num     = slip_info.slip_num,
+                    }
+                    slip_ids_needed[slip_info.slip_item_id] = true
+                end
+            end
+        end
+
+        -- Check slip locations.
+        local slips_in_inv = {}
+        local slips_not_in_inv = {}
+        for slip_item_id in pairs(slip_ids_needed) do
+            if find_slip_in_inventory(slip_item_id) then
+                slips_in_inv[slip_item_id] = true
+            else
+                local loc = find_slip_location(slip_item_id)
+                slips_not_in_inv[slip_item_id] = loc or true
+            end
+        end
+
+        table.sort(results, function(a, b)
+            if a.slip_label == b.slip_label then return a.name < b.name end
+            return a.slip_label < b.slip_label
+        end)
+
+        return {
+            items            = results,
+            slips_in_inv     = slips_in_inv,
+            slips_not_in_inv = slips_not_in_inv,
         }
     end
 
@@ -620,12 +732,180 @@ return function(res, util, config, slots, bags, scanmod, planner)
 
     function M.abort()
         if state ~= STATE_IDLE then
-            util.warn('Porter retrieval aborted.')
+            util.warn('Porter operation aborted.')
             state = STATE_IDLE
             retrieve_ids = {}
             on_complete = nil
             pending_item_name = nil
+            deposit_queue = {}
+            deposit_index = 0
+            on_deposit_complete = nil
+            pending_deposit_name = nil
         end
+    end
+
+    -- ======================================================
+    -- Deposit: store inventory items INTO slips
+    -- ======================================================
+
+    -- Forward declaration.
+    local deposit_trade_next
+
+    local function finish_deposit(success)
+        state = STATE_IDLE
+        deposit_queue = {}
+        deposit_index = 0
+        pending_deposit_name = nil
+        if on_deposit_complete then
+            local cb = on_deposit_complete
+            on_deposit_complete = nil
+            pcall(cb, success)
+        end
+    end
+
+    local function close_deposit_and_continue()
+        state = STATE_DEPOSIT_CLOSING
+        coroutine.schedule(function()
+			windower.send_command('setkey enter down')
+			coroutine.schedule(function()
+				windower.send_command('setkey enter up')
+			end, 0.1)
+            coroutine.schedule(function()
+                state = STATE_IDLE
+                deposit_trade_next()
+            end, 1.5)
+        end, 0.5)
+    end
+
+    local function handle_deposit_menu(data)
+        if #data < 0x2E then return false end
+
+        local zone_id = data:unpack('H', 0x2A+1)
+        local mid     = data:unpack('H', 0x2C+1)
+
+        -- Store menu ID = retrieve menu ID - 1.
+        local expected = ZONE_MENU[zone_id] and (ZONE_MENU[zone_id] - 1)
+        if not expected or expected ~= mid then
+            return false
+        end
+
+        -- Item deposited successfully. Log and close.
+        local name = pending_deposit_name or 'item'
+        pending_deposit_name = nil
+        util.msg(('Deposited: %s'):format(name))
+
+        close_deposit_and_continue()
+        return true
+    end
+
+    deposit_trade_next = function()
+        if state ~= STATE_IDLE then return end
+
+        deposit_index = deposit_index + 1
+        if deposit_index > #deposit_queue then
+            finish_deposit(true)
+            return
+        end
+
+        local npc = M.find_porter_npc()
+        if not npc then
+            util.err('Porter Moogle is no longer in range. Deposit aborted.')
+            finish_deposit(false)
+            return
+        end
+
+        local item = deposit_queue[deposit_index]
+
+        -- Re-find the slip and item fresh from inventory each cycle.
+        local slip_entry = find_inventory_item(item.slip_item_id)
+        if not slip_entry then
+            util.err(('Cannot deposit %s: %s is not in inventory.'):format(
+                item.item_name, item.slip_label))
+            -- Skip this item and continue.
+            deposit_trade_next()
+            return
+        end
+
+        local item_entry = find_inventory_item(item.item_id)
+        if not item_entry then
+            util.warn(('Skipping %s: no longer in inventory.'):format(item.item_name))
+            deposit_trade_next()
+            return
+        end
+
+        pending_deposit_name = item.item_name
+        util.msg(('Trading %s + %s to Porter Moogle...'):format(item.slip_label, item.item_name))
+        trade_npc(npc, {slip_entry, item_entry})
+        -- trade_npc sets state = STATE_TRADED; override to deposit state.
+        state = STATE_DEPOSIT_TRADED
+        schedule_timeout(STATE_DEPOSIT_TRADED)
+    end
+
+    function M.deposit_into_slips(compatible_result, callback)
+        if state ~= STATE_IDLE then
+            util.warn('Porter operation is already in progress.')
+            return false
+        end
+
+        if not slips_lib then
+            util.err('The slips library is not available.')
+            return false
+        end
+
+        if not compatible_result or not compatible_result.items or #compatible_result.items == 0 then
+            util.warn('No items to deposit. Press CHECK SLIPS first.')
+            return false
+        end
+
+        local npc = M.find_porter_npc()
+        if not npc then
+            util.err('Porter Moogle is not in range.')
+            return false
+        end
+
+        -- Check that all required slips are in inventory.
+        local missing_slips = {}
+        for slip_item_id, location in pairs(compatible_result.slips_not_in_inv or {}) do
+            local slip_num = slips_lib.storages and slips_lib.storages:find(slip_item_id)
+            local label = slip_num and ('Slip %02d'):format(slip_num) or 'Slip'
+            if type(location) == 'string' then
+                label = label .. (' (in %s)'):format(location)
+            end
+            missing_slips[#missing_slips+1] = label
+        end
+
+        if #missing_slips > 0 then
+            table.sort(missing_slips)
+            util.err(('Cannot deposit: slip(s) not in inventory: %s'):format(
+                table.concat(missing_slips, ', ')))
+            util.err('Move the required slip(s) to your inventory and try again.')
+            return false
+        end
+
+        -- Build deposit queue: only items whose slips are in inventory.
+        deposit_queue = {}
+        deposit_index = 0
+        for _, item in ipairs(compatible_result.items) do
+            if compatible_result.slips_in_inv[item.slip_item_id] then
+                deposit_queue[#deposit_queue+1] = {
+                    item_id      = item.item_id,
+                    item_name    = item.name,
+                    slip_item_id = item.slip_item_id,
+                    slip_label   = item.slip_label,
+                }
+            end
+        end
+
+        if #deposit_queue == 0 then
+            util.msg('No items to deposit (required slips not in inventory).')
+            return false
+        end
+
+        on_deposit_complete = callback
+        pending_deposit_name = nil
+        util.msg(('Depositing %d item(s) into slips via Porter Moogle...'):format(#deposit_queue))
+        deposit_trade_next()
+        return true
     end
 
     -- ======================================================
@@ -638,6 +918,12 @@ return function(res, util, config, slots, bags, scanmod, planner)
         -- 0x034: NPC menu opened after trade. Select one item.
         if id == 0x034 and state == STATE_TRADED then
             handle_menu(data)
+            return
+        end
+
+        -- 0x034: Store menu opened after deposit trade.
+        if id == 0x034 and state == STATE_DEPOSIT_TRADED then
+            handle_deposit_menu(data)
             return
         end
 
