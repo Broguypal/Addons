@@ -208,8 +208,6 @@ return function(config)
         return nil
     end
 
-    -- Case-insensitive lookup key from a display name.
-    -- Used at every point where a name is used as a table key for matching.
     function M.lkey(s)
         if type(s) ~= 'string' then return s end
         return s:lower()

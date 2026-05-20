@@ -243,9 +243,6 @@ function M.validate_unused(jobfiles)
 
                     local is_used = needed_exact[key] or needed_name_only[util.lkey(rec.name)]
 
-                    -- Also check the long name (enl) — GearSwap files may
-                    -- reference items by their full name rather than the
-                    -- abbreviated form stored in the scan cache.
                     if not is_used and rec.item_id and res.items[rec.item_id] then
                         local r = res.items[rec.item_id]
                         if r.enl then

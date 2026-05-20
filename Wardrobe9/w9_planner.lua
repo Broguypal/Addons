@@ -79,9 +79,6 @@ return function(res, util, config, slots, bags, scanmod)
                 if aug ~= '' then exact = nm .. '|' .. aug end
                 rec.key = exact:lower()
 
-                -- Also look up the long name (enl) so GearSwap files using
-                -- full item names (e.g. "Telchine Chasuble") match items
-                -- stored under short names (e.g. "Telchine Chas.").
                 local enl = nil
                 if rec.item_id and res.items[rec.item_id] then
                     local r = res.items[rec.item_id]
