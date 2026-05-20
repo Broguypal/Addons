@@ -261,10 +261,17 @@ return function(res, util, config, slots, bags, scanmod, planner)
         local name_to_ids = {}
         for id, entry in pairs(res.items) do
             if entry and entry.en then
-                local nm = util.trim(entry.en)
+                local nm = util.lkey(util.trim(entry.en))
                 if nm ~= '' then
                     name_to_ids[nm] = name_to_ids[nm] or {}
                     name_to_ids[nm][#name_to_ids[nm]+1] = id
+                end
+                if entry.enl then
+                    local long = util.lkey(util.trim(entry.enl))
+                    if long ~= '' and long ~= nm then
+                        name_to_ids[long] = name_to_ids[long] or {}
+                        name_to_ids[long][#name_to_ids[long]+1] = id
+                    end
                 end
             end
         end
@@ -302,7 +309,7 @@ return function(res, util, config, slots, bags, scanmod, planner)
         local slip_ids_needed = {}  -- { [slip_item_id] = true }
 
         for key, info in pairs(merged) do
-            local ids = name_to_ids[info.name]
+            local ids = name_to_ids[util.lkey(info.name)]
             if ids then
                 for _, id in ipairs(ids) do
                     if on_slip[id] then

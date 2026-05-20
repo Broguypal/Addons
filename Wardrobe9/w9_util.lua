@@ -181,7 +181,7 @@ return function(config)
         if type(val) == 'string' then
             local name = M.trim(val)
             if name == '' then return nil end
-            return name, name, ''
+            return name:lower(), name, ''
         end
 
         if type(val) == 'table' then
@@ -200,12 +200,19 @@ return function(config)
             end
 
             if aug ~= '' then
-                return name .. '|' .. aug, name, aug
+                return (name .. '|' .. aug):lower(), name, aug
             end
-            return name, name, ''
+            return name:lower(), name, ''
         end
 
         return nil
+    end
+
+    -- Case-insensitive lookup key from a display name.
+    -- Used at every point where a name is used as a table key for matching.
+    function M.lkey(s)
+        if type(s) ~= 'string' then return s end
+        return s:lower()
     end
 
     -- ======================================================

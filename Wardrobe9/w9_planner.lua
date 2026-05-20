@@ -77,33 +77,56 @@ return function(res, util, config, slots, bags, scanmod)
 
                 local exact = nm
                 if aug ~= '' then exact = nm .. '|' .. aug end
-                rec.key = rec.key or exact
+                rec.key = exact:lower()
 
-                by_name[nm] = by_name[nm] or {}
-                by_name[nm][#by_name[nm]+1] = rec
+                -- Also look up the long name (enl) so GearSwap files using
+                -- full item names (e.g. "Telchine Chasuble") match items
+                -- stored under short names (e.g. "Telchine Chas.").
+                local enl = nil
+                if rec.item_id and res.items[rec.item_id] then
+                    local r = res.items[rec.item_id]
+                    if r.enl then
+                        local long = util.trim(r.enl)
+                        if long ~= '' and long:lower() ~= nm:lower() then
+                            enl = long
+                        end
+                    end
+                end
 
-                by_exact[exact] = by_exact[exact] or {}
-                by_exact[exact][#by_exact[exact]+1] = rec
+                local names_to_index = { nm }
+                if enl then names_to_index[2] = enl end
 
-                if enabled_wardrobe_ids[rec.bag_id] then
-                    in_dest_name[nm] = (in_dest_name[nm] or 0) + 1
-                    in_dest_exact[exact] = (in_dest_exact[exact] or 0) + 1
+                for _, raw_name in ipairs(names_to_index) do
+                    local index_name = raw_name:lower()
+                    local index_exact = index_name
+                    if aug ~= '' then index_exact = (raw_name .. '|' .. aug):lower() end
 
-                    dest_aug_by_name[nm] = dest_aug_by_name[nm] or {}
-                    dest_aug_by_name[nm][aug] = true
+                    by_name[index_name] = by_name[index_name] or {}
+                    by_name[index_name][#by_name[index_name]+1] = rec
 
-				elseif excluded_ids[rec.bag_id] then
-					local bag_label = excluded_ids[rec.bag_id] or 'Excluded'
+                    by_exact[index_exact] = by_exact[index_exact] or {}
+                    by_exact[index_exact][#by_exact[index_exact]+1] = rec
 
-					in_excl_name[nm] = (in_excl_name[nm] or 0) + 1
-					in_excl_exact[exact] = (in_excl_exact[exact] or 0) + 1
+                    if enabled_wardrobe_ids[rec.bag_id] then
+                        in_dest_name[index_name] = (in_dest_name[index_name] or 0) + 1
+                        in_dest_exact[index_exact] = (in_dest_exact[index_exact] or 0) + 1
 
-					excl_bag_for_name[nm] = excl_bag_for_name[nm] or {}
-					excl_bag_for_name[nm][bag_label] = true
+                        dest_aug_by_name[index_name] = dest_aug_by_name[index_name] or {}
+                        dest_aug_by_name[index_name][aug] = true
 
-					excl_bag_for_exact[exact] = excl_bag_for_exact[exact] or {}
-					excl_bag_for_exact[exact][bag_label] = true
-				end
+                    elseif excluded_ids[rec.bag_id] then
+                        local bag_label = excluded_ids[rec.bag_id] or 'Excluded'
+
+                        in_excl_name[index_name] = (in_excl_name[index_name] or 0) + 1
+                        in_excl_exact[index_exact] = (in_excl_exact[index_exact] or 0) + 1
+
+                        excl_bag_for_name[index_name] = excl_bag_for_name[index_name] or {}
+                        excl_bag_for_name[index_name][bag_label] = true
+
+                        excl_bag_for_exact[index_exact] = excl_bag_for_exact[index_exact] or {}
+                        excl_bag_for_exact[index_exact][bag_label] = true
+                    end
+                end
             end
         end
 
@@ -216,6 +239,7 @@ return function(res, util, config, slots, bags, scanmod)
 
     local function collect_variables(clean)
         local vars = {}
+        local tbl_vars = {}   -- varname -> raw table body string (for table-form gear)
 
         -- TABLE.field = "string"  or  TABLE.field = 'string'
         for tbl, field, val in clean:gmatch("(%a[%w_]*)%.(%a[%w_]*)%s*=%s*\"([^\"]+)\"") do
@@ -239,6 +263,16 @@ return function(res, util, config, slots, bags, scanmod)
                     vars[key] = val:match('^%s*(.-)%s*$')
                 end
             end
+
+            -- If this table constructor has a name= field, it's likely a gear
+            -- item definition (e.g. MyVar = {name="Item", augments={...}}).
+            -- Store the raw body so slot-resolution can parse it with augments.
+            if not GEAR_SLOT_NAMES[tbl_name:lower()] then
+                local has_name = body:match("name%s*=%s*['\"]")
+                if has_name and not tbl_vars[tbl_name] then
+                    tbl_vars[tbl_name] = body
+                end
+            end
         end
 
         -- simple_var = "string"  (exclude gear slot names and 'name')
@@ -257,7 +291,7 @@ return function(res, util, config, slots, bags, scanmod)
             end
         end
 
-        return vars
+        return vars, tbl_vars
     end
 
     -- TEXT-SCAN superset:
@@ -334,7 +368,7 @@ return function(res, util, config, slots, bags, scanmod)
         -- Strip comments first so commented-out assignments aren't collected.
         do
             local clean = strip_comments(src)
-            local vars = collect_variables(clean)
+            local vars, tbl_vars = collect_variables(clean)
 
             -- slot = TABLE.field  (e.g. head = EMPY.Head)
             for slot, tbl, field in clean:gmatch("([%a_][%w_]*)%s*=%s*(%a[%w_]*)%.(%a[%w_]*)") do
@@ -348,10 +382,25 @@ return function(res, util, config, slots, bags, scanmod)
 
             -- slot = simple_var  (e.g. head = my_head_gear)
             for slot, var_ref in clean:gmatch("([%a_][%w_]*)%s*=%s*(%a[%w_]*)") do
-                if util.group_for_slot(slot) and vars[var_ref] then
-                    local val = vars[var_ref]
-                    if val ~= '' and val:lower() ~= 'empty' then
-                        add_needed(slot, val)
+                if util.group_for_slot(slot) then
+                    if vars[var_ref] then
+                        -- String-form: VAR = "Item Name"
+                        local val = vars[var_ref]
+                        if val ~= '' and val:lower() ~= 'empty' then
+                            add_needed(slot, val)
+                        end
+                    elseif tbl_vars[var_ref] then
+                        -- Table-form: VAR = {name="Item", augments={...}}
+                        local tbl = tbl_vars[var_ref]
+                        local _q, nm = tbl:match("name%s*=%s*(['\"])(.-)%1")
+                        if nm and nm ~= '' then
+                            local aug_list = parse_augments_block(tbl)
+                            if aug_list then
+                                add_needed(slot, { name = nm, augments = aug_list })
+                            else
+                                add_needed(slot, { name = nm })
+                            end
+                        end
                     end
                 end
             end
@@ -373,10 +422,26 @@ return function(res, util, config, slots, bags, scanmod)
             end
 
             for varname, group in pairs(var_to_group) do
+                -- Try string assignment first: VAR = "Item"
                 local pattern = varname .. '%s*=%s*[\'"](.-)[\'""]'
                 local item = src:match(pattern)
                 if item and item ~= '' then
                     add_needed_with_group(group, { name = item })
+                else
+                    -- Try table assignment: VAR = {name="Item", augments={...}}
+                    local tbl_pattern = varname .. '%s*=%s*(%b{})'
+                    local tbl = src:match(tbl_pattern)
+                    if tbl then
+                        local _q, nm = tbl:match("name%s*=%s*(['\"])(.-)%1")
+                        if nm and nm ~= '' then
+                            local aug_list = parse_augments_block(tbl)
+                            if aug_list then
+                                add_needed_with_group(group, { name = nm, augments = aug_list })
+                            else
+                                add_needed_with_group(group, { name = nm })
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -423,23 +488,24 @@ return function(res, util, config, slots, bags, scanmod)
 
         for key,info in pairs(needed) do
             total_needed = total_needed + 1
+            local ln = util.lkey(info.name)   -- lowercased name for index lookups
 
             if info.aug and info.aug ~= '' then
                 if (idx.in_dest_exact[key] or 0) > 0 then
                     present = present + 1
 
-                elseif (idx.in_dest_name[info.name] or 0) > 0 then
+                elseif (idx.in_dest_name[ln] or 0) > 0 then
                     mismatch[#mismatch+1] = { key=key, name=info.name, aug=info.aug, group=info.group }
                     missing[#missing+1]  = { key=key, name=info.name, aug=info.aug, group=info.group, reason='augment_mismatch' }
 
                 else
                     local excl_exact = (idx.in_excl_exact[key] or 0) > 0
-                    local excl_name  = (idx.in_excl_name[info.name] or 0) > 0
+                    local excl_name  = (idx.in_excl_name[ln] or 0) > 0
 
 					if excl_exact or excl_name then
 						local bag_set =
 							idx.excl_bag_for_exact[key]
-							or idx.excl_bag_for_name[info.name]
+							or idx.excl_bag_for_name[ln]
 
 						local bag_label = bagset_to_string(bag_set) or 'Excluded'
 
@@ -454,7 +520,7 @@ return function(res, util, config, slots, bags, scanmod)
                     else
                         do
                         local found_disabled = false
-                        local list = idx.by_exact[key] or idx.by_name[info.name]
+                        local list = idx.by_exact[key] or idx.by_name[ln]
                         if type(list) == 'table' then
                             for _,rec in ipairs(list) do
                                 local bn = idx.disabled_wardrobe_ids and idx.disabled_wardrobe_ids[rec.bag_id]
@@ -480,13 +546,13 @@ return function(res, util, config, slots, bags, scanmod)
                 end
             else
                 -- Non-aug items: name-only presence is fine
-                if (idx.in_dest_name[info.name] or 0) > 0 then
+                if (idx.in_dest_name[ln] or 0) > 0 then
                     present = present + 1
                 else
-                    local excl_name = (idx.in_excl_name[info.name] or 0) > 0
+                    local excl_name = (idx.in_excl_name[ln] or 0) > 0
 					
 					if excl_name then
-						local bag_set = idx.excl_bag_for_name[info.name]
+						local bag_set = idx.excl_bag_for_name[ln]
 						local bag_label = bagset_to_string(bag_set) or 'Excluded'
 
 						excl_present = excl_present + 1
@@ -501,7 +567,7 @@ return function(res, util, config, slots, bags, scanmod)
 
                         do
                         local found_disabled = false
-                        local list = idx.by_name[info.name]
+                        local list = idx.by_name[ln]
                         if type(list) == 'table' then
                             for _,rec in ipairs(list) do
                                 local bn = idx.disabled_wardrobe_ids and idx.disabled_wardrobe_ids[rec.bag_id]
@@ -547,17 +613,24 @@ return function(res, util, config, slots, bags, scanmod)
                 local name_to_ids = {}
                 for id, entry in pairs(res.items) do
                     if entry and entry.en then
-                        local nm = util.trim(entry.en)
+                        local nm = util.lkey(util.trim(entry.en))
                         if nm ~= '' then
                             name_to_ids[nm] = name_to_ids[nm] or {}
                             name_to_ids[nm][#name_to_ids[nm]+1] = id
+                        end
+                        if entry.enl then
+                            local long = util.lkey(util.trim(entry.enl))
+                            if long ~= '' and long ~= nm then
+                                name_to_ids[long] = name_to_ids[long] or {}
+                                name_to_ids[long][#name_to_ids[long]+1] = id
+                            end
                         end
                     end
                 end
 
                 local still_missing = {}
                 for _, m in ipairs(missing) do
-                    local ids = name_to_ids[m.name]
+                    local ids = name_to_ids[util.lkey(m.name)]
                     local slip_label = nil
                     if ids then
                         for _, id in ipairs(ids) do
@@ -641,11 +714,11 @@ return function(res, util, config, slots, bags, scanmod)
         local needed_name_only, needed_exact = {}, {}
         for k,info in pairs(needed) do
             needed_exact[k] = true
-            needed_name_only[info.name] = true
-            plan.required_name_count[info.name] = (plan.required_name_count[info.name] or 0) + 1
+            needed_name_only[util.lkey(info.name)] = true
+            plan.required_name_count[util.lkey(info.name)] = (plan.required_name_count[util.lkey(info.name)] or 0) + 1
 
             if not info.aug or info.aug == '' then
-                plan.required_name_only[info.name] = true
+                plan.required_name_only[util.lkey(info.name)] = true
             end
         end
 
@@ -656,14 +729,13 @@ return function(res, util, config, slots, bags, scanmod)
 
             for _,rec in ipairs(scan.items or {}) do
                 if dest_ids[rec.bag_id] and rec.name and rec.name ~= '' then
-                    if not config.LOCKED_ITEMS[rec.name] then
+                    if not config.LOCKED_ITEMS[rec.name] and not config.LOCKED_ITEMS[util.lkey(rec.name)] then
                         local g = rec.group
 
                         if g and g ~= '' and (not util.is_protected_group(g)) then
-                            local exact = rec.name
-                            if rec.aug and rec.aug ~= '' then exact = rec.name .. '|' .. rec.aug end
+                            local exact = rec.key or util.lkey(rec.name)
 
-                            if (not needed_name_only[rec.name]) and (not needed_exact[exact]) then
+                            if (not needed_name_only[util.lkey(rec.name)]) and (not needed_exact[exact]) then
                                 evict_candidates[g] = evict_candidates[g] or {}
                                 evict_candidates[g][#evict_candidates[g]+1] = rec
                             end
@@ -710,7 +782,7 @@ return function(res, util, config, slots, bags, scanmod)
                 return nil, 'none'
             end
 
-            local list_name = idx.by_name[m.name]
+            local list_name = idx.by_name[util.lkey(m.name)]
             if not list_name or #list_name == 0 then
                 return nil, 'none'
             end
@@ -737,7 +809,7 @@ return function(res, util, config, slots, bags, scanmod)
             local src, src_mode = pick_source_for_missing(m)
             if not src or src_mode ~= 'exact' then
                 any_missing = true
-                local have = idx.dest_aug_by_name[m.name]
+                local have = idx.dest_aug_by_name[util.lkey(m.name)]
                 local havet = {}
                 if type(have) == 'table' then
                     for a,_ in pairs(have) do
@@ -809,7 +881,7 @@ return function(res, util, config, slots, bags, scanmod)
                                 from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
                                 to_bag_id=return_id, to_bag_name=return_name,
                                 item_name=ev.name, group=group,
-                                item_key=ev.key or (ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
+                                item_key=ev.key or util.lkey(ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
                             }
 
                             free_by_dest[ev.bag_id] = (free_by_dest[ev.bag_id] or 0) + 1
@@ -825,7 +897,7 @@ return function(res, util, config, slots, bags, scanmod)
                                 from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
                                 to_bag_id=return_id, to_bag_name=return_name,
                                 item_name=ev.name, group=group,
-                                item_key=ev.key or (ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
+                                item_key=ev.key or util.lkey(ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
                             }
 
                             free_by_dest[ev.bag_id] = (free_by_dest[ev.bag_id] or 0) + 1
@@ -890,7 +962,7 @@ return function(res, util, config, slots, bags, scanmod)
 
                     local planned_into_wardrobes = 0
                     for _,mv in ipairs(plan.moves or {}) do
-                        if mv.type == 'import' and mv.item_name == name and mv.to_bag_id and dest_ids[mv.to_bag_id] then
+                        if mv.type == 'import' and util.lkey(mv.item_name) == name and mv.to_bag_id and dest_ids[mv.to_bag_id] then
                             planned_into_wardrobes = planned_into_wardrobes + 1
                         end
                     end
@@ -924,7 +996,7 @@ return function(res, util, config, slots, bags, scanmod)
                                                 from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
                                                 to_bag_id=return_id, to_bag_name=return_name,
                                                 item_name=ev.name, group=g,
-                                                item_key=ev.key or (ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
+                                                item_key=ev.key or util.lkey(ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
                                             }
 
                                             free_by_dest[ev.bag_id] = (free_by_dest[ev.bag_id] or 0) + 1

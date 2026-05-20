@@ -58,9 +58,9 @@ return function(res, extdata, util)
         end
 
         if aug ~= '' then
-            return name .. '|' .. aug
+            return (name .. '|' .. aug):lower()
         end
-        return name
+        return name:lower()
     end
 
     function M.exec_plan(plan)

@@ -80,12 +80,13 @@ return function(res, util, config, bags, scanmod, planner)
         for key, info in pairs(merged) do
             total = total + 1
             local found_in_wd = false
+            local ln = util.lkey(info.name)
 
             -- Augment-strict: augmented items require exact key match.
             if info.aug and info.aug ~= '' then
                 found_in_wd = (idx.in_dest_exact[key] or 0) > 0
             else
-                found_in_wd = (idx.in_dest_name[info.name] or 0) > 0
+                found_in_wd = (idx.in_dest_name[ln] or 0) > 0
             end
 
             if found_in_wd then
@@ -93,7 +94,7 @@ return function(res, util, config, bags, scanmod, planner)
             else
                 -- Not in any wardrobe — check all bags.
                 local recs_exact = (info.aug and info.aug ~= '') and idx.by_exact[key] or nil
-                local recs_name  = idx.by_name[info.name]
+                local recs_name  = idx.by_name[ln]
 
                 local non_wd_bags = {}
 
@@ -149,17 +150,24 @@ return function(res, util, config, bags, scanmod, planner)
                 local name_to_ids = {}
                 for id, entry in pairs(res.items) do
                     if entry and entry.en then
-                        local nm = util.trim(entry.en)
+                        local nm = util.lkey(util.trim(entry.en))
                         if nm ~= '' then
                             name_to_ids[nm] = name_to_ids[nm] or {}
                             name_to_ids[nm][#name_to_ids[nm]+1] = id
+                        end
+                        if entry.enl then
+                            local long = util.lkey(util.trim(entry.enl))
+                            if long ~= '' and long ~= nm then
+                                name_to_ids[long] = name_to_ids[long] or {}
+                                name_to_ids[long][#name_to_ids[long]+1] = id
+                            end
                         end
                     end
                 end
 
                 local still_missing = {}
                 for _, m in ipairs(missing_entirely) do
-                    local ids = name_to_ids[m.name]
+                    local ids = name_to_ids[util.lkey(m.name)]
                     local slip_label = nil
                     if ids then
                         for _, id in ipairs(ids) do
@@ -218,7 +226,7 @@ function M.validate_unused(jobfiles)
 
         for key, info in pairs(merged) do
             needed_exact[key] = true
-            needed_name_only[info.name] = true
+            needed_name_only[util.lkey(info.name)] = true
         end
 
         local wd_ids = wardrobe_id_set(true)
@@ -230,10 +238,28 @@ function M.validate_unused(jobfiles)
             if wd_ids[rec.bag_id] and rec.name and rec.name ~= '' then
                 local group = rec.group or ''
                 if group ~= '' and not util.is_protected_group(group) then
-                    -- rec.key was set by index_scan_items — same format as needed keys
+                    -- rec.key was set by index_scan_items — lowercased, same format as needed keys
                     local key = rec.key
 
-                    local is_used = needed_exact[key] or needed_name_only[rec.name]
+                    local is_used = needed_exact[key] or needed_name_only[util.lkey(rec.name)]
+
+                    -- Also check the long name (enl) — GearSwap files may
+                    -- reference items by their full name rather than the
+                    -- abbreviated form stored in the scan cache.
+                    if not is_used and rec.item_id and res.items[rec.item_id] then
+                        local r = res.items[rec.item_id]
+                        if r.enl then
+                            local long = util.lkey(util.trim(r.enl))
+                            if long ~= '' and long ~= util.lkey(rec.name) then
+                                is_used = needed_name_only[long]
+                                if not is_used then
+                                    local long_key = long
+                                    if rec.aug and rec.aug ~= '' then long_key = (long .. '|' .. rec.aug):lower() end
+                                    is_used = needed_exact[long_key]
+                                end
+                            end
+                        end
+                    end
 
                     if not is_used and not seen[key] then
                         seen[key] = true
