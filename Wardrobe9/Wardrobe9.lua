@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'wardrobe9'
 _addon.author = 'Broguypal'
-_addon.version = '2.3'
+_addon.version = '2.3.1'
 
 local res = require('resources')
 local extdata = require('extdata')

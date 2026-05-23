@@ -832,16 +832,17 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
             if success then
                 push_log('ok', 'Retrieval complete.')
                 state.status = 'Retrieval complete.'
-                layout()
-                if post_action_fn then
-                    coroutine.schedule(function()
-                        post_action_fn(retrieved_item_ids)
-                    end, 1.5)
-                end
             else
                 push_log('warn', 'Retrieval finished with warnings. Check log above.')
                 state.status = 'Retrieval finished. Check log.'
-                layout()
+            end
+            layout()
+            -- Run post-action even on partial success (e.g. inventory filled up)
+            -- so that RETR+FILL can move items to wardrobes and loop back.
+            if post_action_fn then
+                coroutine.schedule(function()
+                    post_action_fn(retrieved_item_ids, success)
+                end, 1.5)
             end
         end)
 
@@ -858,10 +859,19 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
     -- ======================================================
     -- RETR+FILL: retrieve from porter, then move directly
     -- from inventory into wardrobe slots with free space.
+    -- Loops automatically: retrieve batch → fill wardrobes →
+    -- retrieve more, until all items are done or wardrobes
+    -- are full.
     -- ======================================================
 
+    local MAX_FILL_CYCLES = 20  -- safety limit to prevent infinite loops
+
     local function do_retrieve_fill()
-        do_retrieve_common(function(item_ids)
+        local cycle = 0
+
+        local function fill_cycle(item_ids, retrieval_complete)
+            cycle = cycle + 1
+
             -- Get enabled destination wardrobes with free space.
             local dest_bags, _ = bags.build_dest_bags()
 
@@ -902,9 +912,42 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
             local idx = 1
             local function step()
                 if idx > #moves then
-                    push_log('ok', 'Wardrobe fill complete.')
-                    state.status = 'Items moved to wardrobes.'
+                    push_log('ok', ('Wardrobe fill complete (cycle %d).'):format(cycle))
                     layout()
+
+                    -- If retrieval stopped early (inventory was full) and we
+                    -- haven't hit the safety limit, re-scan and retrieve more.
+                    if not retrieval_complete and cycle < MAX_FILL_CYCLES then
+                        coroutine.schedule(function()
+                            -- Re-scan to see if items remain on slips.
+                            local files = selected_files_list()
+                            if #files == 0 then
+                                state.status = 'Items moved to wardrobes.'
+                                layout()
+                                return
+                            end
+
+                            local result, err = portermod.identify_needed_on_slips(files)
+                            if not result or #result.items == 0 then
+                                push_log('ok', 'All needed items retrieved and stored.')
+                                state.status = 'All items moved to wardrobes.'
+                                layout()
+                                return
+                            end
+
+                            state.last_identify = result
+                            push_log('msg', ('%d item(s) still on slips. Retrieving next batch...'):format(#result.items))
+                            layout()
+
+                            -- Kick off another retrieve cycle.
+                            do_retrieve_common(function(ids2, success2)
+                                fill_cycle(ids2, success2)
+                            end)
+                        end, 1.5)
+                    else
+                        state.status = 'Items moved to wardrobes.'
+                        layout()
+                    end
                     return
                 end
 
@@ -938,21 +981,31 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
             end
 
             step()
+        end
+
+        do_retrieve_common(function(item_ids, success)
+            fill_cycle(item_ids, success)
         end)
     end
 
     -- ======================================================
     -- RETR+STORE: retrieve from porter, then store in
-    -- Satchel / Case / Sack (portable storage bags)
+    -- Satchel / Case / Sack (portable storage bags).
     -- ======================================================
 
+    local MAX_STORE_CYCLES = 20  -- safety limit
+
     local function do_retrieve_store()
-        do_retrieve_common(function(item_ids)
-            local STORAGE_BAGS = {
-                {id=5, name='Satchel'},
-                {id=7, name='Case'},
-                {id=6, name='Sack'},
-            }
+        local cycle = 0
+
+        local STORAGE_BAGS = {
+            {id=5, name='Satchel'},
+            {id=7, name='Case'},
+            {id=6, name='Sack'},
+        }
+
+        local function store_cycle(item_ids, retrieval_complete)
+            cycle = cycle + 1
 
             -- Find retrieved items in inventory
             local moves = {}
@@ -984,9 +1037,40 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
             local idx = 1
             local function step()
                 if idx > #moves then
-                    push_log('ok', 'Storage complete.')
-                    state.status = 'Items stored in portable storage.'
+                    push_log('ok', ('Storage complete (cycle %d).'):format(cycle))
                     layout()
+
+                    -- If retrieval stopped early (inventory was full) and we
+                    -- haven't hit the safety limit, re-scan and retrieve more.
+                    if not retrieval_complete and cycle < MAX_STORE_CYCLES then
+                        coroutine.schedule(function()
+                            local files = selected_files_list()
+                            if #files == 0 then
+                                state.status = 'Items stored in portable storage.'
+                                layout()
+                                return
+                            end
+
+                            local result, err = portermod.identify_needed_on_slips(files)
+                            if not result or #result.items == 0 then
+                                push_log('ok', 'All needed items retrieved and stored.')
+                                state.status = 'All items stored in portable storage.'
+                                layout()
+                                return
+                            end
+
+                            state.last_identify = result
+                            push_log('msg', ('%d item(s) still on slips. Retrieving next batch...'):format(#result.items))
+                            layout()
+
+                            do_retrieve_common(function(ids2, success2)
+                                store_cycle(ids2, success2)
+                            end)
+                        end, 1.5)
+                    else
+                        state.status = 'Items stored in portable storage.'
+                        layout()
+                    end
                     return
                 end
 
@@ -1020,6 +1104,10 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
             end
 
             step()
+        end
+
+        do_retrieve_common(function(item_ids, success)
+            store_cycle(item_ids, success)
         end)
     end
 
@@ -1510,7 +1598,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
     end
 
     -- ==========================================================================
-    -- Events (registered by Wardrobe9.lua)
+    -- Events
     -- ==========================================================================
 
     function pui.on_mouse(type, x, y, delta, blocked)
