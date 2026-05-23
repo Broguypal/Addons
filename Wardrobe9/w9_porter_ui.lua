@@ -991,6 +991,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
     -- ======================================================
     -- RETR+STORE: retrieve from porter, then store in
     -- Satchel / Case / Sack (portable storage bags).
+    -- Loops automatically: retrieve batch → store to bags →
+    -- retrieve more, until all items are done or bags are full.
     -- ======================================================
 
     local MAX_STORE_CYCLES = 20  -- safety limit
@@ -1186,7 +1188,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         local missing_count = 0
         for _ in pairs(result.slips_not_in_inv or {}) do missing_count = missing_count + 1 end
         if missing_count > 0 then
-            push_log('warn', ('Note: %d slip(s) are NOT in your inventory. Move them to inventory before pressing DEPOSIT SLIPS.'):format(missing_count))
+            push_log('warn', ('%d slip(s) are NOT in your inventory. Those items will be skipped. Move slips to inventory to deposit all.'):format(missing_count))
         else
             push_log('ok', 'All required slips are in your inventory. Press DEPOSIT SLIPS to store items.')
         end
@@ -1598,7 +1600,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
     end
 
     -- ==========================================================================
-    -- Events
+    -- Events (registered by Wardrobe9.lua)
     -- ==========================================================================
 
     function pui.on_mouse(type, x, y, delta, blocked)

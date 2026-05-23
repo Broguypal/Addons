@@ -13,6 +13,9 @@ modification, are permitted provided that the following conditions are met:
    promote products derived from this software without prior written permission.
 
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Porter retrieval packet logic adapted from PorterPacker by Ivaar (MIT License)
+and informed by Porter by Thorny (MIT License).
 ]]
 
 return function(res, util, config, slots, bags, scanmod, planner)
@@ -867,7 +870,7 @@ return function(res, util, config, slots, bags, scanmod, planner)
             return false
         end
 
-        -- Check that all required slips are in inventory.
+        -- Warn about any slips that are not in inventory (but proceed with what we can).
         local missing_slips = {}
         for slip_item_id, location in pairs(compatible_result.slips_not_in_inv or {}) do
             local slip_num = slips_lib.storages and slips_lib.storages:find(slip_item_id)
@@ -880,10 +883,8 @@ return function(res, util, config, slots, bags, scanmod, planner)
 
         if #missing_slips > 0 then
             table.sort(missing_slips)
-            util.err(('Cannot deposit: slip(s) not in inventory: %s'):format(
+            util.warn(('Skipping items for slip(s) not in inventory: %s'):format(
                 table.concat(missing_slips, ', ')))
-            util.err('Move the required slip(s) to your inventory and try again.')
-            return false
         end
 
         -- Build deposit queue: only items whose slips are in inventory.
