@@ -15,14 +15,14 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
-return function(res, util, config, planner, portermod, scanmod, execmod, bags)
+return function(res, util, config, planner, portermod, scanmod, execmod, bags, prefs)
     local pui = {}
 
     local texts  = require('texts')
     local images = require('images')
 
     -- ==========================================================================
-    -- Assets (shared with main UI)
+    -- Assets 
     -- ==========================================================================
 
     local ADDON_PATH = windower.addon_path or (_addon and _addon.path) or 'addons/wardrobe9/'
@@ -42,6 +42,11 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         sb_arrow_down  = ASSETS_DIR .. 'sb_arrow_down.png',
         chk_on         = ASSETS_DIR .. 'chk_on.png',
         chk_off        = ASSETS_DIR .. 'chk_off.png',
+
+        fav_on         = ASSETS_DIR .. 'fav_on.png',
+        fav_off        = ASSETS_DIR .. 'fav_off.png',
+        low_on         = ASSETS_DIR .. 'low_on.png',
+        low_off        = ASSETS_DIR .. 'low_off.png',
     }
 
     -- ==========================================================================
@@ -72,6 +77,9 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         SB_BTN_H    = 16,
         CHK_SIZE    = 14,
         CHK_GAP     = 4,
+        PRIO_SIZE   = 14,
+        PRIO_GAP    = 4,
+        PRIO_LPAD   = 6,
         ROW_H       = 16,
         BOTTOM_PAD  = 8,
     }
@@ -122,6 +130,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         text     = {255, 235, 235, 235},
         subtle   = {255, 190, 190, 190},
         btn_txt  = {255, 245, 245, 245},
+        fav      = { 95, 220, 115, 255},
+        low      = {235,  95,  95, 255}, 
         log_msg  = {255, 200, 220, 255},
         log_warn = {255, 255, 220, 140},
         log_err  = {255, 255, 160, 160},
@@ -196,9 +206,13 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
 
     local img_row_sel = {}
     local img_chk     = {}
+    local img_fav     = {}
+    local img_low     = {}
     for i = 1, PX.FILE_ROWS do
         img_row_sel[i] = make_img(ASSET.row_selected)
         img_chk[i]     = make_img(ASSET.chk_off)
+        img_fav[i]     = make_img(ASSET.fav_off)
+        img_low[i]     = make_img(ASSET.low_off)
     end
 
     local img_file_sb_track = make_img(ASSET.sb_track)
@@ -315,6 +329,18 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         return UI.x + PX.PAD, UI.y + PX.FILE_Y, content_w(), PX.FILE_ROWS * row_h()
     end
 
+    -- Per-row priority button geometry
+    function Rect.file_prio_btn(vis, which)
+        local flx = UI.x + PX.PAD
+        local fly = UI.y + PX.FILE_Y
+        local ry  = fly + (vis-1) * row_h()
+        local by  = ry + math.floor((row_h() - PX.PRIO_SIZE) / 2)
+        local low_x = flx + content_w() - PX.PRIO_SIZE
+        local fav_x = low_x - PX.PRIO_GAP - PX.PRIO_SIZE
+        if which == 'fav' then return fav_x, by, PX.PRIO_SIZE, PX.PRIO_SIZE end
+        return low_x, by, PX.PRIO_SIZE, PX.PRIO_SIZE
+    end
+
     function Rect.point_in(mx, my, x, y, w, h)
         return mx >= x and mx <= (x+w) and my >= y and my <= (y+h)
     end
@@ -421,6 +447,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         for i = 1, PX.FILE_ROWS do
             if v then img_row_sel[i]:show() else img_row_sel[i]:hide() end
             if v then img_chk[i]:show()     else img_chk[i]:hide()     end
+            if v then img_fav[i]:show()     else img_fav[i]:hide()     end
+            if v then img_low[i]:show()     else img_low[i]:hide()     end
         end
         for _, def in ipairs(BTN_DEFS) do
             if not def.toggle then
@@ -523,7 +551,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
 
         -- File rows
         local chk_total = PX.CHK_SIZE + PX.CHK_GAP
-        local tw = content_w() - chk_total
+        local prio_total = PX.PRIO_LPAD + PX.PRIO_SIZE + PX.PRIO_GAP + PX.PRIO_SIZE
+        local tw = content_w() - chk_total - prio_total
         local rc = chars_in(tw)
         ensure_rows(t_file_rows, PX.FILE_ROWS)
         ensure_file_scroll_valid()
@@ -545,7 +574,23 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
                 img_chk[vis]:path(checked and ASSET.chk_on or ASSET.chk_off)
                 place_img(img_chk[vis], flx, chk_y, PX.CHK_SIZE, PX.CHK_SIZE)
                 t:text(pad_right(rec.label, rc))
-                set_color(t, C.text)
+
+                local pr = rec.priority
+                if pr == 'fav' then
+                    set_color(t, C.fav)
+                elseif pr == 'low' then
+                    set_color(t, C.low)
+                else
+                    set_color(t, C.text)
+                end
+
+                local fx, fy = Rect.file_prio_btn(vis, 'fav')
+                local lx2, ly2 = Rect.file_prio_btn(vis, 'low')
+                img_fav[vis]:path(pr == 'fav' and ASSET.fav_on or ASSET.fav_off)
+                img_low[vis]:path(pr == 'low' and ASSET.low_on or ASSET.low_off)
+                place_img(img_fav[vis], fx,  fy,  PX.PRIO_SIZE, PX.PRIO_SIZE)
+                place_img(img_low[vis], lx2, ly2, PX.PRIO_SIZE, PX.PRIO_SIZE)
+
                 if checked then
                     place_img(img_row_sel[vis], flx, ry, content_w(), row_h())
                 else
@@ -555,6 +600,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
                 t:text(pad_right('', rc))
                 img_chk[vis]:hide()
                 img_row_sel[vis]:hide()
+                img_fav[vis]:hide()
+                img_low[vis]:hide()
             end
             t:bg_alpha(0)
             t:visible(true)
@@ -653,6 +700,28 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         return out
     end
 
+    -- Priority ordering
+    local function file_priority_rank(p)
+        if p == 'fav' then return 0 end
+        if p == 'low' then return 2 end
+        return 1
+    end
+
+    local function sort_files()
+        table.sort(state.files, function(a, b)
+            local ra, rb = file_priority_rank(a.priority), file_priority_rank(b.priority)
+            if ra ~= rb then return ra < rb end
+            return (a.label or ''):lower() < (b.label or ''):lower()
+        end)
+    end
+
+    local function apply_priorities()
+        for _, rec in ipairs(state.files) do
+            rec.priority = prefs and prefs.get(rec.fullpath or rec.label) or nil
+        end
+        sort_files()
+    end
+
     local function refresh_file_list()
         state.files        = {}
         state.selected_set = {}
@@ -678,8 +747,38 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
                 fullpath = util.safe_join(char, fn),
             }
         end
+
+        apply_priorities()
+
         ensure_file_scroll_valid()
         state.status = ('Found %d GearSwap lua(s). Select file(s) and press RETRIEVAL SCAN.'):format(#state.files)
+    end
+
+    local function toggle_file_priority(abs, which)
+        local rec = state.files[abs]
+        if not rec or not prefs then return end
+
+        rec.priority = prefs.toggle(rec.fullpath or rec.label, which)
+
+        local checked_keys = {}
+        for i, v in pairs(state.selected_set) do
+            if v and state.files[i] then
+                checked_keys[state.files[i].fullpath or state.files[i].label] = true
+            end
+        end
+
+        sort_files()
+
+        state.selected_set = {}
+        for i, r in ipairs(state.files) do
+            if checked_keys[r.fullpath or r.label] then
+                state.selected_set[i] = true
+            end
+        end
+        state.selected_index = nil
+
+        ensure_file_scroll_valid()
+        layout()
     end
 
     local function selected_files_list()
@@ -1331,6 +1430,26 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
         return false
     end
 
+    -- Per-row priority buttons
+    local function click_file_prio(mx, my)
+        local lx, ly, lw, lh = Rect.file_list()
+        if not Rect.point_in(mx, my, lx, ly, lw, lh) then return false end
+        local vis = math.floor((my - ly) / row_h()) + 1
+        if vis < 1 or vis > PX.FILE_ROWS then return false end
+        local abs = (state.file_scroll or 0) + vis
+        if abs < 1 or abs > #state.files then return false end
+
+        local fx, fy, fw, fh = Rect.file_prio_btn(vis, 'fav')
+        if Rect.point_in(mx, my, fx, fy, fw, fh) then
+            toggle_file_priority(abs, 'fav'); return true
+        end
+        local rx, ry, rw, rh = Rect.file_prio_btn(vis, 'low')
+        if Rect.point_in(mx, my, rx, ry, rw, rh) then
+            toggle_file_priority(abs, 'low'); return true
+        end
+        return false
+    end
+
     local function click_file_list(mx, my)
         local lx, ly, lw, lh = Rect.file_list()
         if not Rect.point_in(mx, my, lx, ly, lw, lh) then return false end
@@ -1477,6 +1596,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags)
 
         if type == 1 then -- left down
             if click_buttons(x, y)      then return true end
+            if click_file_prio(x, y)    then return true end
             if click_file_list(x, y)    then return true end
             if begin_drag(x, y)         then return true end
             if begin_file_sb_drag(x, y) then return true end

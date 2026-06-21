@@ -15,7 +15,7 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
-return function(res, util, config, scanmod, planner, execmod, mousemod, validate)
+return function(res, util, config, scanmod, planner, execmod, mousemod, validate, prefs)
     local ui = {}
 
     local texts  = require('texts')
@@ -42,6 +42,12 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         sb_arrow_down  = ASSETS_DIR .. 'sb_arrow_down.png',
         chk_on         = ASSETS_DIR .. 'chk_on.png',
         chk_off        = ASSETS_DIR .. 'chk_off.png',
+
+        -- Per-row priority toggles 
+        fav_on         = ASSETS_DIR .. 'fav_on.png',   -- green circle, active
+        fav_off        = ASSETS_DIR .. 'fav_off.png',  -- green circle, dimmed
+        low_on         = ASSETS_DIR .. 'low_on.png',   -- red X, active
+        low_off        = ASSETS_DIR .. 'low_off.png',  -- red X, dimmed
     }
 
     -- ==========================================================================
@@ -77,6 +83,11 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
 
         CHK_SIZE    = 14,
         CHK_GAP     = 4,
+
+        -- Per-row priority toggle buttons (right edge of each file row)
+        PRIO_SIZE   = 14,   -- button size (matches checkbox)
+        PRIO_GAP    = 4,    -- gap between the two buttons
+        PRIO_LPAD   = 6,    -- gap between row text and first button
 
         ROW_H       = 16,
 
@@ -149,6 +160,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         text    = {255, 235, 235, 235},
         subtle  = {255, 190, 190, 190},
 
+        -- File-row priority text colors
+        fav     = {95,  220, 115, 255},   -- green  (favorited / top)
+        low     = {235, 95,  95,  255},   -- red    (low priority / bottom)
+
         btn_txt  = {255, 245, 245, 245},
 
         log_msg     = {255, 200, 220, 255},
@@ -219,6 +234,14 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     local img_chk = {}
     for i = 1, PX.FILE_ROWS do
         img_chk[i] = make_img(ASSET.chk_off)
+    end
+
+    -- Priority toggle images
+    local img_fav = {}
+    local img_low = {}
+    for i = 1, PX.FILE_ROWS do
+        img_fav[i] = make_img(ASSET.fav_off)
+        img_low[i] = make_img(ASSET.low_off)
     end
 
     -- Scrollbar images: file list
@@ -375,6 +398,28 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         return out
     end
 
+    -- Priority ordering
+    local function file_priority_rank(p)
+        if p == 'fav' then return 0 end
+        if p == 'low' then return 2 end
+        return 1
+    end
+
+    local function sort_files()
+        table.sort(state.files, function(a, b)
+            local ra, rb = file_priority_rank(a.priority), file_priority_rank(b.priority)
+            if ra ~= rb then return ra < rb end
+            return (a.label or ''):lower() < (b.label or ''):lower()
+        end)
+    end
+
+    local function apply_priorities()
+        for _, rec in ipairs(state.files) do
+            rec.priority = prefs.get(rec.fullpath or rec.label)
+        end
+        sort_files()
+    end
+
     local function refresh_file_list()
         state.files          = {}
         state.selected_set   = {}
@@ -401,9 +446,13 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             }
         end
 
+        apply_priorities()
+
         ensure_file_scroll_valid()
         state.status = ('Found %d GearSwap lua(s). Click rows to check/uncheck.'):format(#state.files)
     end
+
+    local toggle_file_priority
 
     local function selected_files_list()
         local out = {}
@@ -477,6 +526,22 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         local lx = UI.x + PX.PAD
         local ly = UI.y + PX.FILE_Y
         return lx, ly, content_w(), PX.FILE_ROWS * row_h()
+    end
+
+    -- Geometry of a per-row priority button
+    function Rect.file_prio_btn(vis, which)
+        local file_lx = UI.x + PX.PAD
+        local file_ly = UI.y + PX.FILE_Y
+        local ry = file_ly + (vis - 1) * row_h()
+        local by = ry + math.floor((row_h() - PX.PRIO_SIZE) / 2)
+
+        local low_x = file_lx + content_w() - PX.PRIO_SIZE
+        local fav_x = low_x - PX.PRIO_GAP - PX.PRIO_SIZE
+
+        if which == 'fav' then
+            return fav_x, by, PX.PRIO_SIZE, PX.PRIO_SIZE
+        end
+        return low_x, by, PX.PRIO_SIZE, PX.PRIO_SIZE
     end
 
     function Rect.log()
@@ -627,6 +692,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         for i = 1, PX.FILE_ROWS do
             if v then img_row_sel[i]:show() else img_row_sel[i]:hide() end
             if v then img_chk[i]:show()     else img_chk[i]:hide()     end
+            if v then img_fav[i]:show()     else img_fav[i]:hide()     end
+            if v then img_low[i]:show()     else img_low[i]:hide()     end
         end
 
         -- Button images + text
@@ -749,7 +816,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
 
         -- ---- File rows ----
         local chk_total = PX.CHK_SIZE + PX.CHK_GAP
-        local text_w    = content_w() - chk_total
+        local prio_total = PX.PRIO_LPAD + PX.PRIO_SIZE + PX.PRIO_GAP + PX.PRIO_SIZE
+        local text_w    = content_w() - chk_total - prio_total
         local rc = chars_in(text_w)
         Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
         ensure_file_scroll_valid()
@@ -778,7 +846,24 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
                 Render.place_img(img_chk[vis], file_lx, chk_y, PX.CHK_SIZE, PX.CHK_SIZE)
 
                 t:text(pad_right(rec.label, rc))
-                set_color(t, C.text)
+
+                -- Row text color reflects priority: green = favorite, red = low.
+                local pr = rec.priority
+                if pr == 'fav' then
+                    set_color(t, C.fav)
+                elseif pr == 'low' then
+                    set_color(t, C.low)
+                else
+                    set_color(t, C.text)
+                end
+
+                -- Priority toggle buttons (bright when active, dim otherwise).
+                local fx, fy = Rect.file_prio_btn(vis, 'fav')
+                local lx2, ly2 = Rect.file_prio_btn(vis, 'low')
+                img_fav[vis]:path(pr == 'fav' and ASSET.fav_on or ASSET.fav_off)
+                img_low[vis]:path(pr == 'low' and ASSET.low_on or ASSET.low_off)
+                Render.place_img(img_fav[vis], fx,  fy,  PX.PRIO_SIZE, PX.PRIO_SIZE)
+                Render.place_img(img_low[vis], lx2, ly2, PX.PRIO_SIZE, PX.PRIO_SIZE)
 
                 -- Row selection highlight image.
                 if checked then
@@ -790,6 +875,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
                 t:text(pad_right('', rc))
                 img_chk[vis]:hide()
                 img_row_sel[vis]:hide()
+                img_fav[vis]:hide()
+                img_low[vis]:hide()
             end
 
             t:bg_alpha(0)
@@ -928,6 +1015,39 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     end
 
     ui.push_log = push_log
+
+    -- ==========================================================================
+    -- File priority toggling (favorite / low-priority)
+    -- ==========================================================================
+    function toggle_file_priority(abs, which)
+        local rec = state.files[abs]
+        if not rec then return end
+
+        local key = rec.fullpath or rec.label
+        rec.priority = prefs.toggle(key, which)
+
+        -- Remember checked files by path before the order changes.
+        local checked_keys = {}
+        for i, v in pairs(state.selected_set) do
+            if v and state.files[i] then
+                checked_keys[state.files[i].fullpath or state.files[i].label] = true
+            end
+        end
+
+        sort_files()
+
+        -- Rebuild selection against the new ordering.
+        state.selected_set = {}
+        for i, r in ipairs(state.files) do
+            if checked_keys[r.fullpath or r.label] then
+                state.selected_set[i] = true
+            end
+        end
+        state.selected_index = nil
+
+        ensure_file_scroll_valid()
+        layout()
+    end
 
     -- ==========================================================================
     -- Actions
@@ -1196,6 +1316,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         ensure_selection_visible = ensure_selection_visible,
         clear_log    = clear_log,
         push_log     = push_log,
+        toggle_file_priority = toggle_file_priority,
         SB_HIT_PAD_X = SB_HIT_PAD_X,
         SB_HIT_PAD_Y = SB_HIT_PAD_Y,
     })

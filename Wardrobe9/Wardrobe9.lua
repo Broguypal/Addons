@@ -32,13 +32,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'wardrobe9'
 _addon.author = 'Broguypal'
-_addon.version = '2.3.2'
+_addon.version = '2.4.0'
 
 local res = require('resources')
 local extdata = require('extdata')
 
 local ADDON_PATH = windower.addon_path or (_addon and _addon.path) or 'addons/wardrobe9/'
 local SCAN_FILE  = ADDON_PATH .. 'scan_cache.lua'
+local PREFS_FILE = ADDON_PATH .. 'job_priorities.lua'
 
 local function load_local(modfile)
     return dofile(ADDON_PATH .. modfile)
@@ -53,10 +54,11 @@ local planner  = load_local('w9_planner.lua')(res, util, config, slots, bags, sc
 local validate = load_local('w9_validate.lua')(res, util, config, bags, scan, planner)
 local execmod  = load_local('w9_executor.lua')(res, extdata, util)
 local mousemod = load_local('w9_mouse.lua')
-local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod, validate)
+local prefs    = load_local('w9_prefs.lua')(util, ADDON_PATH, PREFS_FILE)
+local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod, validate, prefs)
 
 local porter    = load_local('w9_porter.lua')(res, util, config, slots, bags, scan, planner)
-local porter_ui = load_local('w9_porter_ui.lua')(res, util, config, planner, porter, scan, execmod, bags)
+local porter_ui = load_local('w9_porter_ui.lua')(res, util, config, planner, porter, scan, execmod, bags, prefs)
 
 windower.register_event('incoming chunk', function(id, data, modified, injected, blocked)
     porter.on_incoming_chunk(id, data)

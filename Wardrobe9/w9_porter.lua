@@ -13,6 +13,9 @@ modification, are permitted provided that the following conditions are met:
    promote products derived from this software without prior written permission.
 
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Porter retrieval packet logic adapted from PorterPacker by Ivaar (MIT License)
+and informed by Porter by Thorny (MIT License).
 ]]
 
 return function(res, util, config, slots, bags, scanmod, planner)

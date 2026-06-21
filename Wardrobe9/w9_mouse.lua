@@ -34,6 +34,7 @@ return function(ctx)
     local ensure_selection_visible = ctx.ensure_selection_visible
     local clear_log    = ctx.clear_log
     local push_log     = ctx.push_log
+    local toggle_file_priority = ctx.toggle_file_priority
     local SB_HIT_PAD_X = ctx.SB_HIT_PAD_X
     local SB_HIT_PAD_Y = ctx.SB_HIT_PAD_Y
 
@@ -115,6 +116,32 @@ return function(ctx)
         if Rect.point_in(mx, my, x, y, w, h) then return scroll_log_by(-3) end
         x, y, w, h = Rect.log_sb_downbtn()
         if Rect.point_in(mx, my, x, y, w, h) then return scroll_log_by(3) end
+
+        return false
+    end
+
+    -- Per-row priority buttons (green = favorite/top, red = low/bottom).
+    local function click_file_prio(mx, my)
+        local lx, ly, lw, lh = Rect.file_list()
+        if not Rect.point_in(mx, my, lx, ly, lw, lh) then return false end
+
+        local vis = math.floor((my - ly) / row_h()) + 1
+        if vis < 1 or vis > PX.FILE_ROWS then return false end
+
+        local abs = (state.file_scroll or 0) + vis
+        if abs < 1 or abs > #state.files then return false end
+
+        local fx, fy, fw, fh = Rect.file_prio_btn(vis, 'fav')
+        if Rect.point_in(mx, my, fx, fy, fw, fh) then
+            if toggle_file_priority then toggle_file_priority(abs, 'fav') end
+            return true
+        end
+
+        local rx, ry, rw, rh = Rect.file_prio_btn(vis, 'low')
+        if Rect.point_in(mx, my, rx, ry, rw, rh) then
+            if toggle_file_priority then toggle_file_priority(abs, 'low') end
+            return true
+        end
 
         return false
     end
@@ -331,6 +358,7 @@ return function(ctx)
         -- type 1: left down
         if type == 1 then
             if click_buttons(x, y)        then return true end
+            if click_file_prio(x, y)      then return true end
             if click_file_list(x, y)      then return true end
             if begin_drag(x, y)           then return true end
             if begin_file_sb_drag(x, y)   then return true end
