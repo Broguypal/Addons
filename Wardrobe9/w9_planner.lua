@@ -827,7 +827,7 @@ return function(res, util, config, slots, bags, scanmod)
                         from_bag_id=src.bag_id, from_bag_name=src.bag_name, from_slot=src.slot,
                         to_bag_id=dest_id, to_bag_name=(res.bags[dest_id] and res.bags[dest_id].en) or tostring(dest_id),
                         item_name=m.name, group=m.group,
-                        item_key=m.key,
+                        item_key=src.key or m.key,
                     }
                     free_by_dest[dest_id] = math.max(0, (free_by_dest[dest_id] or 0) - 1)
                 end
@@ -857,7 +857,7 @@ return function(res, util, config, slots, bags, scanmod)
                             to_bag_id=dest_id, to_bag_name=(res.bags[dest_id] and res.bags[dest_id].en) or tostring(dest_id),
                             item_name=m.name, group=group,
                             warn_aug_mismatch=true,
-                            item_key=m.key,
+                            item_key=src.key or m.key,
                         }
                         free_by_dest[dest_id] = math.max(0, (free_by_dest[dest_id] or 0) - 1)
                     end
@@ -922,7 +922,7 @@ return function(res, util, config, slots, bags, scanmod)
                             to_bag_id=dest_id, to_bag_name=(res.bags[dest_id] and res.bags[dest_id].en) or tostring(dest_id),
                             item_name=m.name, group=group,
                             warn_aug_mismatch=warn_aug,
-                            item_key=m.key,
+                            item_key=src.key or m.key,
                         }
                         free_by_dest[dest_id] = math.max(0, (free_by_dest[dest_id] or 0) - 1)
                     end
@@ -1004,7 +1004,7 @@ return function(res, util, config, slots, bags, scanmod)
                                                 to_bag_id=ev.bag_id, to_bag_name=(res.bags[ev.bag_id] and res.bags[ev.bag_id].en) or tostring(ev.bag_id),
                                                 item_name=name, group=g,
                                                 warn_aug_mismatch=true,
-                                                item_key=name,
+                                                item_key=rec.key or name,
                                             }
 
                                             free_by_dest[ev.bag_id] = math.max(0, (free_by_dest[ev.bag_id] or 0) - 1)
