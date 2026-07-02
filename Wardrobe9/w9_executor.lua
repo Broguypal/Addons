@@ -33,6 +33,12 @@ return function(res, extdata, util)
         return true, nil
     end
 
+    local function bag_free(bag_id)
+        local bi = windower.ffxi.get_bag_info(bag_id)
+        if not bi then return 0 end
+        return math.max(0, (bi.max or 0) - (bi.count or 0))
+    end
+
     local function slot_item_key(bag_id, slot)
         local contents = windower.ffxi.get_items(bag_id)
         if not contents or not contents.max or not contents[slot] then return nil end
@@ -76,13 +82,56 @@ return function(res, extdata, util)
         executing = true
         util.msg(('Executing %d moves...'):format(#plan.moves))
 
+        local moved   = 0
+        local failed  = 0
+        local skipped = 0
+
+        -- Last fired move, awaiting verification on the next tick.
+        local pending = nil
+
+        -- Verify the previous move actually happened: its source slot should
+        -- no longer contain the item. The server drops invalid moves silently,
+        -- so this is the only way to know a move truly landed.
+        local function verify_pending()
+            if not pending then return end
+            local mv = pending
+            pending = nil
+
+            local cur = slot_item_key(mv.from_bag_id, mv.from_slot)
+            if cur and mv.item_key and cur == mv.item_key then
+                failed = failed + 1
+                util.err(('Move NOT accepted by server (%s): %s:slot%d -> %s (%s)')
+                    :format(
+                        tostring(mv.type),
+                        tostring(mv.from_bag_name),
+                        tonumber(mv.from_slot) or -1,
+                        tostring(mv.to_bag_name),
+                        tostring(mv.item_name)
+                    ))
+            else
+                moved = moved + 1
+            end
+        end
+
+        local function finish()
+            executing = false
+            verify_pending()
+            if failed == 0 and skipped == 0 then
+                util.msg(('Execution complete: %d moved.'):format(moved))
+            else
+                util.warn(('Execution complete: %d moved, %d failed, %d skipped.'):format(moved, failed, skipped))
+                util.warn('Some items did not move. Re-run SCAN, then PLAN to see the current state.')
+            end
+        end
+
         local i = 1
         local function step()
             if not executing then return end
 
+            verify_pending()
+
             if i > #plan.moves then
-                executing = false
-                util.msg('Execution complete.')
+                finish()
                 return
             end
 
@@ -108,8 +157,20 @@ return function(res, extdata, util)
                 end
             end
 
+            -- Safety: skip moves whose destination bag has no free slot.
+            -- The server rejects these silently, so firing them is pointless.
+            if mv.to_bag_id and bag_free(mv.to_bag_id) < 1 then
+                skipped = skipped + 1
+                util.warn(('SKIP move %d: destination %s is FULL. (%s stays in %s:slot%d)')
+                    :format(i-1, tostring(mv.to_bag_name), tostring(mv.item_name),
+                            tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
+                coroutine.schedule(step, 0.1)
+                return
+            end
+
             local ok, e = native_move(mv)
             if not ok then
+                failed = failed + 1
                 util.err(('Move failed (%s): %s:slot%d -> %s (%s) | %s')
                     :format(
                         tostring(mv.type),
@@ -119,6 +180,8 @@ return function(res, extdata, util)
                         tostring(mv.item_name),
                         tostring(e)
                     ))
+            else
+                pending = mv
             end
 
             -- Slight delay between moves to stay safe with server processing.

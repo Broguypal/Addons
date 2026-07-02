@@ -698,9 +698,31 @@ return function(res, util, config, slots, bags, scanmod)
             end
         end
 
-        local return_id, return_name = bags.pick_return_bag_id()
-        if not return_id then
+        local return_bags = bags.build_return_bags()
+
+        local function return_slot_available()
+            for _, b in ipairs(return_bags) do
+                if b.free > 0 then return true end
+            end
+            return false
+        end
+
+        -- Claims one free slot from the highest-priority return bag that has
+        -- space. Evictions fill Safe first, then spill to Safe 2, Storage, etc.
+        local function take_return_slot()
+            for _, b in ipairs(return_bags) do
+                if b.free > 0 then
+                    b.free = b.free - 1
+                    return b.id, b.name
+                end
+            end
+            return nil, nil
+        end
+
+        if #return_bags == 0 then
             plan.notes[#plan.notes+1] = 'No enabled return bag found (Safe/Safe2/Storage/etc). EVICT moves will not be planned.'
+        elseif not return_slot_available() then
+            plan.notes[#plan.notes+1] = 'All return bags (Safe/Safe2/Storage/etc) are FULL. EVICT moves cannot be planned; swaps will be skipped. Free up space and re-run SCAN + PLAN.'
         end
 
         local free_by_dest = {}
@@ -870,13 +892,14 @@ return function(res, util, config, slots, bags, scanmod)
                     if mode == 'fill' then
                         -- FILL mode: use free wardrobe slots first; evict only as last resort
                         dest_id = pick_any_dest_with_space()
-                        if not dest_id and return_id and cands and #cands > 0 then
+                        if not dest_id and cands and #cands > 0 and return_slot_available() then
+                            local rid, rname = take_return_slot()
                             local ev = table.remove(cands, 1)
 
                             plan.moves[#plan.moves+1] = {
                                 type='evict',
                                 from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
-                                to_bag_id=return_id, to_bag_name=return_name,
+                                to_bag_id=rid, to_bag_name=rname,
                                 item_name=ev.name, group=group,
                                 item_key=ev.key or util.lkey(ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
                             }
@@ -886,13 +909,14 @@ return function(res, util, config, slots, bags, scanmod)
                         end
                     else
                         -- SWAP mode: evict same-group item first; free slots as fallback
-                        if return_id and cands and #cands > 0 then
+                        if cands and #cands > 0 and return_slot_available() then
+                            local rid, rname = take_return_slot()
                             local ev = table.remove(cands, 1)
 
                             plan.moves[#plan.moves+1] = {
                                 type='evict',
                                 from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
-                                to_bag_id=return_id, to_bag_name=return_name,
+                                to_bag_id=rid, to_bag_name=rname,
                                 item_name=ev.name, group=group,
                                 item_key=ev.key or util.lkey(ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
                             }
@@ -905,10 +929,12 @@ return function(res, util, config, slots, bags, scanmod)
                     end
 
                     if not dest_id then
-                        if return_id then
-                            plan.notes[#plan.notes+1] = ('No space for %s (%s): no unused %s item to evict and no free slots.'):format(m.name, group, group)
-                        else
+                        if #return_bags == 0 then
                             plan.notes[#plan.notes+1] = ('No space for %s (%s): no return bag for eviction and no free slots.'):format(m.name, group)
+                        elseif not return_slot_available() then
+                            plan.notes[#plan.notes+1] = ('No space for %s (%s): return bags are FULL (cannot evict) and no free wardrobe slots.'):format(m.name, group)
+                        else
+                            plan.notes[#plan.notes+1] = ('No space for %s (%s): no unused %s item to evict and no free slots.'):format(m.name, group, group)
                         end
                     else
                         local warn_aug = ((m.aug and m.aug ~= '') and (src_mode == 'name1'))
@@ -968,8 +994,8 @@ return function(res, util, config, slots, bags, scanmod)
                     local need_more = enabled_total - in_wardrobes_future
 
                     if need_more > 0 and enabled_total > req_count then
-                        if not return_id then
-                            plan.notes[#plan.notes+1] = ('Extra copies for %s: cannot import %d additional copy/copies because no enabled return bag exists for eviction.'):format(name, need_more)
+                        if not return_slot_available() then
+                            plan.notes[#plan.notes+1] = ('Extra copies for %s: cannot import %d additional copy/copies because all return bags are full (or none enabled).'):format(name, need_more)
                         else
                             plan.notes[#plan.notes+1] = ('Extra copies for %s: ensuring all %d enabled copies are in wardrobes (lua references %d).'):format(name, enabled_total, req_count)
                         end
@@ -984,14 +1010,15 @@ return function(res, util, config, slots, bags, scanmod)
                         if g and g ~= '' and (not util.is_protected_group(g)) then
                                         local cands = evict_candidates[g]
 
-                                        if return_id and cands and #cands > 0 then
+                                        if cands and #cands > 0 and return_slot_available() then
+                                            local rid, rname = take_return_slot()
                                             local ev = table.remove(cands, 1)
 
   
                                             plan.moves[#plan.moves+1] = {
                                                 type='evict',
                                                 from_bag_id=ev.bag_id, from_bag_name=ev.bag_name, from_slot=ev.slot,
-                                                to_bag_id=return_id, to_bag_name=return_name,
+                                                to_bag_id=rid, to_bag_name=rname,
                                                 item_name=ev.name, group=g,
                                                 item_key=ev.key or util.lkey(ev.name .. ((ev.aug and ev.aug ~= '') and ('|'..ev.aug) or '')),
                                             }

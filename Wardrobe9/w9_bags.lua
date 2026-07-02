@@ -65,6 +65,25 @@ return function(res, util, config)
         return nil, nil
     end
 
+    -- Enabled return bags in RETURN_BAG_ORDER priority, with current free-slot
+    -- counts. The planner decrements 'free' as it assigns evicts, so evictions
+    -- spill from Safe into Safe 2, Storage, etc. as each bag fills.
+    function M.build_return_bags()
+        local out = {}
+        local order = config.RETURN_BAG_ORDER or {}
+        for _, bn in ipairs(order) do
+            local id = M.bag_id_by_name(bn)
+            if id and M.bag_enabled(id) then
+                out[#out+1] = {
+                    id   = id,
+                    name = (res.bags[id] and res.bags[id].en) or bn,
+                    free = M.bag_free(id),
+                }
+            end
+        end
+        return out
+    end
+
     function M.build_dest_bags()
         local dest = {}
         local disabled = {}
