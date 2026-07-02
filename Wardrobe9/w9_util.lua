@@ -256,7 +256,7 @@ return function(config)
             {id=14, name='Wardrobe 6'},
             {id=15, name='Wardrobe 7'},
             {id=16, name='Wardrobe 8'},
-            {id=17, name='Safe 2'},
+            {id=9,  name='Safe 2'},
         }
 
         local slip_ids_to_find = {}

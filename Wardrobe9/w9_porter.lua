@@ -203,7 +203,7 @@ return function(res, util, config, slots, bags, scanmod, planner)
         {id=14, name='Wardrobe 6'},
         {id=15, name='Wardrobe 7'},
         {id=16, name='Wardrobe 8'},
-        {id=17, name='Safe 2'},
+        {id=9,  name='Safe 2'},
     }
 
     local function find_slip_location(slip_item_id)
