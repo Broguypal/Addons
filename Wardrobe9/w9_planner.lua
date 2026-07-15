@@ -72,7 +72,8 @@ return function(res, util, config, slots, bags, scanmod)
         for _,rec in ipairs(scan.items or {}) do
             local nm = rec.name
             if nm and nm ~= '' then
-                local aug = util.normalize_aug_string(rec.aug or '')
+                -- Already normalized by scan (normalize_aug_list); use as-is.
+                local aug = rec.aug or ''
                 rec.aug = aug
 
                 local exact = nm
@@ -592,8 +593,12 @@ return function(res, util, config, slots, bags, scanmod)
         end
 
         table.sort(missing, function(a,b)
-            if a.group == b.group then return a.name < b.name end
-            return a.group < b.group
+            if a.group ~= b.group then return a.group < b.group end
+            if a.name ~= b.name then return a.name < b.name end
+            -- Augmented entries before name-only for the same item.
+            local aa = (a.aug and a.aug ~= '') and 1 or 0
+            local ba = (b.aug and b.aug ~= '') and 1 or 0
+            return aa > ba
         end)
 
         table.sort(mismatch, function(a,b)
@@ -780,6 +785,22 @@ return function(res, util, config, slots, bags, scanmod)
             return nil
         end
 
+        -- Prevent scheduling the same physical slot for more than one move.
+        local claimed_src = {}      -- ["bag_id:slot"] = true
+        local imported_names = {}   -- [lkey(name)] = true
+
+        local function is_claimed(rec)
+            return rec and claimed_src[rec.bag_id .. ':' .. rec.slot] == true
+        end
+
+        local function claim_last_import(name)
+            local mv = plan.moves[#plan.moves]
+            if mv and mv.from_bag_id and mv.from_slot then
+                claimed_src[mv.from_bag_id .. ':' .. mv.from_slot] = true
+            end
+            if name then imported_names[util.lkey(name)] = true end
+        end
+
         local function pick_source_for_missing(m)
             -- Returns: rec, mode
             -- mode:
@@ -793,7 +814,7 @@ return function(res, util, config, slots, bags, scanmod)
 
                 if list_exact and #list_exact > 0 then
                     for _,rec in ipairs(list_exact) do
-                        if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) then
+                        if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) and (not is_claimed(rec)) then
                             return rec, 'exact'
                         end
                     end
@@ -808,7 +829,7 @@ return function(res, util, config, slots, bags, scanmod)
 
             local enabled = {}
             for _,rec in ipairs(list_name) do
-                if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) then
+                if bags.bag_enabled(rec.bag_id) and (not util.is_excluded_source_bag(rec.bag_name)) and (not idx.unmanaged_enabled_wardrobe_ids[rec.bag_id]) and (not is_claimed(rec)) then
                     enabled[#enabled+1] = rec
                 end
             end
@@ -852,6 +873,7 @@ return function(res, util, config, slots, bags, scanmod)
                         item_key=src.key or m.key,
                     }
                     free_by_dest[dest_id] = math.max(0, (free_by_dest[dest_id] or 0) - 1)
+                    claim_last_import(m.name)
                 end
             end
         end
@@ -861,7 +883,10 @@ return function(res, util, config, slots, bags, scanmod)
             local src, src_mode = pick_source_for_missing(m)
 
 		if not src or not bags.bag_enabled(src.bag_id) then
-			any_missing = true
+			-- Not missing if the same item is already being imported.
+			if not imported_names[util.lkey(m.name)] then
+				any_missing = true
+			end
 
             else
 
@@ -882,6 +907,7 @@ return function(res, util, config, slots, bags, scanmod)
                             item_key=src.key or m.key,
                         }
                         free_by_dest[dest_id] = math.max(0, (free_by_dest[dest_id] or 0) - 1)
+                        claim_last_import(m.name)
                     end
 
                 else
@@ -951,6 +977,7 @@ return function(res, util, config, slots, bags, scanmod)
                             item_key=src.key or m.key,
                         }
                         free_by_dest[dest_id] = math.max(0, (free_by_dest[dest_id] or 0) - 1)
+                        claim_last_import(m.name)
                     end
                 end
             end
