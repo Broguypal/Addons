@@ -29,7 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name     = 'CastStill'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.0'
+_addon.version  = '1.0.1'
 _addon.commands = {'caststill', 'cst'}
 
 require('pack')
@@ -108,9 +108,13 @@ local function normalize_target(cmd)
 end
 
 local function fire_pending()
-    cs.bypass_until = os.clock() + 0.50
     local p = cs.pending
     cs.pending = nil
+
+    local info = windower.ffxi.get_info()
+    if not info or not info.logged_in or info.loading then return end
+
+    cs.bypass_until = os.clock() + 0.50
     if p.kind == 'text' then
         windower.send_command('input ' .. p.cmd)
     else
@@ -232,7 +236,7 @@ windower.register_event('prerender', function()
 
     if (os.clock() - cs.pending_time) >= caststill.stop_window then
         fire_pending()
-		return
+        return
     end
 
     if not get_pos() then
@@ -242,7 +246,6 @@ windower.register_event('prerender', function()
 
     if cs.is_settled and server_knows_pos() then
         fire_pending()
-        return
     end
 end)
 
