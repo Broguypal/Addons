@@ -27,8 +27,9 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ]]
 
--- CastStill - holds movement-interruptible actions until the server
--- confirms you've stopped moving (two matching 0x15 position packets).
+-- CastStill - holds movement-interruptible actions until the server confirms
+-- you've stopped moving (two matching 0x015 position packets), or until a
+-- short timeout expires, whichever comes first.
 
 _addon.name     = 'CastStill'
 _addon.author   = 'Broguypal'
@@ -84,7 +85,8 @@ local function should_gate()
     return true
 end
 
--- trailing numeric target ids are gearswap-only syntax
+-- trailing numeric target ids are gearswap-only syntax, so they have to be
+-- converted back to standard target tokens before the line is re-sent as text
 local function normalize_target(cmd)
     local base, id = cmd:match('^(.+%S)%s+(%d+)%s*$')
     if not base then return cmd end
@@ -157,6 +159,7 @@ local gated_text_prefixes = {
     ['/shoot']        = true,
 }
 
+-- catch gated actions entered as text and hold the line for re-sending later.
 -- suppress with '' not true; blocked lines still reach addons that ignore the flag
 windower.register_event('outgoing text', function(original, modified, blocked)
     if blocked == true then return end
@@ -196,7 +199,8 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
 
     if blocked then return end
 
-    -- hold equip packets behind a held action so midcast gear can't beat it
+    -- queue gear swaps that arrive while an action is held, so the action
+    -- reaches the server ahead of any equip change that followed it
     if (id == 0x050 or id == 0x051) and cs.pending and cs.pending.kind == 'packet' then
         table.insert(cs.pending.equips, { id = id, data = modified })
         return true
@@ -219,7 +223,12 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
     return true
 end)
 
--- a loaded gearswap eats a bare 'gearswap' silently; unloaded, it echoes back here
+-- load order matters: windower calls event handlers in the order addons loaded,
+-- so whichever loads first sees the action first. a gearswap already loaded when
+-- we start takes the action before we can hold it, and reloading gearswap
+-- re-registers it behind us. the load handler sends a bare 'gearswap' as a probe:
+-- a loaded gearswap eats it silently, an unloaded one echoes back here and
+-- cancels the reload, so a correct load order costs nothing
 windower.register_event('unhandled command', function(cmd)
     if cs.gs_probe_deadline and cmd and cmd:lower() == 'gearswap' then
         cs.gs_probe_deadline = nil
@@ -227,7 +236,8 @@ windower.register_event('unhandled command', function(cmd)
 end)
 
 windower.register_event('prerender', function()
-    if cs.gs_probe_deadline and os.clock() >= cs.gs_probe_deadline then
+    -- probe wasn't echoed back as unhandled, so gearswap swallowed it and is loaded
+	if cs.gs_probe_deadline and os.clock() >= cs.gs_probe_deadline then
         cs.gs_probe_deadline = nil
         windower.add_to_chat(8, 'CastStill: GearSwap is loaded, reloading it so CastStill intercepts first.')
         windower.send_command('lua reload gearswap')
@@ -250,11 +260,6 @@ windower.register_event('prerender', function()
     end
 end)
 
--- windower calls event handlers in load order, so whichever addon loads first
--- sees the action first. if gearswap is already loaded, it takes the action
--- before we can hold it. reloading gearswap re-registers it behind us.
--- the bare 'gearswap' is a probe: only a loaded gearswap answers it, so a
--- correct load order skips the reload entirely
 windower.register_event('load', function()
     windower.add_to_chat(8, 'CastStill v' .. _addon.version .. ' loaded.')
     if auto_order and windower.file_exists(windower.addon_path .. '../GearSwap/GearSwap.lua') then
