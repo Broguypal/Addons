@@ -1,17 +1,20 @@
 --[[
-BSD 3-Clause License
-Copyright (c) 2026 Broguypal
-All rights reserved.
+Copyright © 2026 Broguypal
+
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
+
 1. Redistributions of source code must retain the above copyright notice, this
    list of conditions and the following disclaimer.
+
 2. Redistributions in binary form must reproduce the above copyright notice,
    this list of conditions and the following disclaimer in the documentation
    and/or other materials provided with the distribution.
-3. Neither the name of Broguypal nor the names of its contributors may be used
-   to endorse or promote products derived from this software without specific
-   prior written permission.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,15 +32,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name     = 'CastStill'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.0.1'
-_addon.commands = {'caststill', 'cst'}
+_addon.version  = '1.0.2'
 
 require('pack')
 
-caststill = caststill or {}
-caststill.recent_window = caststill.recent_window or 1.25
-caststill.stop_window   = caststill.stop_window   or 0.35
-if caststill.auto_order == nil then caststill.auto_order = true end
+local recent_window = 1.25
+local stop_window   = 0.35
+local auto_order    = true
 
 local cs = {
     last_reported    = nil,
@@ -69,7 +70,7 @@ local function same_pos(p1, p2)
 end
 
 local function recently_moving()
-    return (os.clock() - cs.last_move_time) <= caststill.recent_window
+    return (os.clock() - cs.last_move_time) <= recent_window
 end
 
 local function server_knows_pos()
@@ -234,7 +235,7 @@ windower.register_event('prerender', function()
 
     if not cs.pending then return end
 
-    if (os.clock() - cs.pending_time) >= caststill.stop_window then
+    if (os.clock() - cs.pending_time) >= stop_window then
         fire_pending()
         return
     end
@@ -249,25 +250,14 @@ windower.register_event('prerender', function()
     end
 end)
 
-windower.register_event('addon command', function(cmd, arg)
-    cmd = cmd and cmd:lower() or 'status'
-    if cmd == 'recent' and tonumber(arg) then
-        caststill.recent_window = tonumber(arg)
-        windower.add_to_chat(8, ('CastStill: recent_window = %.2f'):format(caststill.recent_window))
-    elseif cmd == 'stop' and tonumber(arg) then
-        caststill.stop_window = tonumber(arg)
-        windower.add_to_chat(8, ('CastStill: stop_window = %.2f'):format(caststill.stop_window))
-    else
-        windower.add_to_chat(8, ('CastStill v%s | recent_window=%.2f stop_window=%.2f | settled=%s pending=%s'):format(
-            _addon.version, caststill.recent_window, caststill.stop_window,
-            tostring(cs.is_settled), cs.pending and cs.pending.kind or 'none'))
-        windower.add_to_chat(8, 'Commands: //cst recent <sec> | //cst stop <sec> | //cst status')
-    end
-end)
-
+-- windower calls event handlers in load order, so whichever addon loads first
+-- sees the action first. if gearswap is already loaded, it takes the action
+-- before we can hold it. reloading gearswap re-registers it behind us.
+-- the bare 'gearswap' is a probe: only a loaded gearswap answers it, so a
+-- correct load order skips the reload entirely
 windower.register_event('load', function()
     windower.add_to_chat(8, 'CastStill v' .. _addon.version .. ' loaded.')
-    if caststill.auto_order and windower.file_exists(windower.addon_path .. '../GearSwap/GearSwap.lua') then
+    if auto_order and windower.file_exists(windower.addon_path .. '../GearSwap/GearSwap.lua') then
         windower.send_command('@wait 0.5;gearswap')
         cs.gs_probe_deadline = os.clock() + 1.5
     end
