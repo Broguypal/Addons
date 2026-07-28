@@ -57,7 +57,7 @@
 ## 👤 Author
 
 Created by **Broguypal**  
-Version **1.5** 
+Version **1.6** 
 
 Copyright (c) 2026 Broguypal
 License: BSD 3-Clause 
