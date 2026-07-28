@@ -3,7 +3,7 @@
 
 _addon.name     = 'dbTracker'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.5'
+_addon.version  = '1.6'
 
 local texts   = require('texts')
 local config  = require('config')
@@ -70,12 +70,18 @@ end
 ------------------------------------------------------------
 local function parse_buffs(data)
     local party = windower.ffxi.get_party() or {}
+    for i = 1, 5 do
+        local m = party['p'..i]
+        if m and m.name and m.mob and m.mob.id and m.mob.id ~= 0 then
+            _id_to_name[m.mob.id] = m.name
+        end
+    end
+
     for k = 0, 4 do
         local base = k*48 + 5
         local pid  = data:unpack('I', base)
         if pid ~= 0 then
-            local m = party['p'..(k+1)]
-            local name = (m and m.name) or _name_from_id(pid) or ('<'..tostring(pid)..'>')
+            local name = _name_from_id(pid) or ('<'..tostring(pid)..'>')
             if name and name ~= '' then
                 local ids = {}
                 for i = 1, 32 do
@@ -382,7 +388,7 @@ function update_ui()
 
   -- update content/colors
 	for i,r in ipairs(rows) do
-		local label = ("%d. %s"):format(i, r.name)
+		local label = ("%d. %s"):format(i, i == 1 and 'You' or r.name)
 		ui.rows[i].name:text(label)
 		set_text_rgb(ui.rows[i].name, name_color(r.name))
 		ui.rows[i].buffs:text(format_debuff_line(r.labels))
@@ -469,7 +475,6 @@ windower.register_event('prerender', function()
     refresh_jobs()
   end
 
-  -- NEW: keep rows anchored to the header while dragging, and persist after it settles
   if ui.header then
     local hx, hy = ui.header:pos()
     if hx ~= __last_header_x or hy ~= __last_header_y then
@@ -513,7 +518,6 @@ windower.register_event('load', function() -- Create member table if addon loads
 	drag_state.x, drag_state.y = settings.pos.x, settings.pos.y
 	
 	if not is_player_ready() then
-    -- try again when ready: hydrate buffs if cached; otherwise just paint
     coroutine.schedule(function()
       if is_player_ready() then
         local data = windower.packets.last_incoming(0x076)
