@@ -55,7 +55,7 @@ local function get_pos()
     local info = windower.ffxi.get_info()
     if not info or not info.logged_in or info.loading then return nil end
     local p = windower.ffxi.get_player()
-    if not p then return nil end
+    if not p or not p.index then return nil end
     local me = windower.ffxi.get_mob_by_index(p.index)
     if me and me.x and me.y then
         return { x = me.x, y = me.y }
@@ -230,6 +230,11 @@ windower.register_event('prerender', function()
 
     if not cs.pending then return end
 
+    if (os.clock() - cs.pending_time) >= caststill.stop_window then
+        fire_pending()
+		return
+    end
+
     if not get_pos() then
         cs.pending = nil
         return
@@ -238,10 +243,6 @@ windower.register_event('prerender', function()
     if cs.is_settled and server_knows_pos() then
         fire_pending()
         return
-    end
-
-    if (os.clock() - cs.pending_time) >= caststill.stop_window then
-        fire_pending()
     end
 end)
 
