@@ -41,8 +41,6 @@ if caststill.auto_order == nil then caststill.auto_order = true end
 
 local cs = {
     last_reported    = nil,
-    prev_reported    = nil,
-    last_report_time = 0,
     last_move_time   = -999,
     is_settled       = true,
 
@@ -136,9 +134,7 @@ local function track_position(data)
         end
     end
 
-    cs.prev_reported    = cs.last_reported
-    cs.last_reported    = new_pos
-    cs.last_report_time = now
+    cs.last_reported = new_pos
 end
 
 local gated_text_prefixes = {
