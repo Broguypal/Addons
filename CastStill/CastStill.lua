@@ -110,6 +110,8 @@ local function normalize_target(cmd)
     return base .. ' <t>'
 end
 
+-- sends the held action first, then any equips caught behind it, keeping the
+-- client's original order
 local function fire_pending()
     local p = cs.pending
     cs.pending = nil
@@ -199,8 +201,9 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
 
     if blocked then return end
 
-    -- queue gear swaps that arrive while an action is held, so the action
-    -- reaches the server ahead of any equip change that followed it
+    -- if we're holding an action, anything sent after it has to wait too.
+    -- an equip that slipped through would reach the server before the action,
+    -- reversing the order the client sent them in
     if (id == 0x050 or id == 0x051) and cs.pending and cs.pending.kind == 'packet' then
         table.insert(cs.pending.equips, { id = id, data = modified })
         return true
@@ -237,7 +240,7 @@ end)
 
 windower.register_event('prerender', function()
     -- probe wasn't echoed back as unhandled, so gearswap swallowed it and is loaded
-	if cs.gs_probe_deadline and os.clock() >= cs.gs_probe_deadline then
+    if cs.gs_probe_deadline and os.clock() >= cs.gs_probe_deadline then
         cs.gs_probe_deadline = nil
         windower.add_to_chat(8, 'CastStill: GearSwap is loaded, reloading it so CastStill intercepts first.')
         windower.send_command('lua reload gearswap')
