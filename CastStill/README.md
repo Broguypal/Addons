@@ -24,20 +24,21 @@ the lag after stopping; it can't make you cast while running.
 
 CastStill watches the position updates your client sends to the server. When
 you act too soon after moving, it holds the outgoing action packet and re-sends
-it once the server has confirmed where you're standing or after a short timeout, 
+it once the server has confirmed where you're standing or after a short timeout,
 whichever comes first. The hold is never longer than 0.35 seconds.
 
 There's nothing to configure and no commands. The timings are tuned and fixed.
 
 ## Does it work with GearSwap?
 
-Yes, and you don't need GearSwap for CastStill to work.
+Yes.
 
 Windower calls addon event handlers in load order, so whichever addon loads
 first sees your actions first, and CastStill has to see them before GearSwap
 does. GearSwap is usually already running by the time CastStill starts, so
-CastStill reloads it once to put it back in line. This happens at the character
-select screen, before the game is drawing chat, so you won't see it.
+CastStill reloads it once to put it back in line. If you load CastStill from
+your `init.txt`, that reload happens at the character select screen, before the
+game is drawing chat, so you won't see it.
 
 Where you will notice: reloading CastStill mid-session reloads GearSwap with it,
 which resets any modes you may have set.
