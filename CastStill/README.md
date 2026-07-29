@@ -1,7 +1,7 @@
 # CastStill
 
-Stops your spells/items/ranged attacks from getting interrupted right after you
-stop moving.
+A Windower 4 addon for Final Fantasy XI that stops your spells, items, and
+ranged attacks from getting interrupted right after you stop moving.
 
 ## What it does
 
@@ -16,12 +16,16 @@ standing still.
 
 It works on magic, ninjutsu, songs, trusts, items, and ranged attacks.
 
+Note: If you cast while you're still actively running, the spell gets sent after
+the hold expires and can still be interrupted. CastStill protects you from
+the lag after stopping; it can't make you cast while running.
+
 ## How it works
 
 CastStill watches the position updates your client sends to the server. When
 you act too soon after moving, it holds the outgoing action packet and re-sends
-it once the server has confirmed where you're standing — or after a short
-timeout, whichever comes first. The hold is never longer than 0.35 seconds.
+it once the server has confirmed where you're standing or after a short timeout, 
+whichever comes first. The hold is never longer than 0.35 seconds.
 
 There's nothing to configure and no commands. The timings are tuned and fixed.
 
@@ -40,12 +44,6 @@ which resets any modes you may have set.
 
 All your gear swaps (precast, midcast, aftercast) work exactly like they always
 have.
-
-## Good to know
-
-- If you cast while you're still actively running, the spell gets sent after
-  the hold expires and can still be interrupted. CastStill protects you from
-  the lag after stopping; it can't make you cast while running.
 
 ## License
 
