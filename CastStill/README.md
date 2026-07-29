@@ -50,8 +50,7 @@ does. If GearSwap is already loaded when CastStill starts up, CastStill reloads
 it once so it re-registers behind. You'll see a message in chat when this
 happens.
 
-If CastStill loads first, nothing gets reloaded. Listing it before GearSwap in
-your `init.txt` skips the whole thing.
+If CastStill loads first, nothing gets reloaded.
 
 One thing to know: reloading CastStill mid-session will reload GearSwap too,
 which resets any modes you've set with `gs c`.
