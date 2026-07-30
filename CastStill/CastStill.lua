@@ -33,7 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name     = 'CastStill'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.0.2'
+_addon.version  = '1.1.0'
 
 require('pack')
 
@@ -51,6 +51,7 @@ local cs = {
     bypass_until     = 0,
 
     gs_probe_deadline = nil,
+    gs_present        = false,
 }
 
 local function get_pos()
@@ -110,8 +111,8 @@ local function normalize_target(cmd)
     return base .. ' <t>'
 end
 
--- sends the held action first, then any equips caught behind it, keeping the
--- client's original order
+-- releases any equips caught behind the held action first, so the server has
+-- the gear on record when it computes the action's cast time
 local function fire_pending()
     local p = cs.pending
     cs.pending = nil
@@ -123,10 +124,10 @@ local function fire_pending()
     if p.kind == 'text' then
         windower.send_command('input ' .. p.cmd)
     else
-        windower.packets.inject_outgoing(p.id, p.data)
         for _, eq in ipairs(p.equips) do
             windower.packets.inject_outgoing(eq.id, eq.data)
         end
+        windower.packets.inject_outgoing(p.id, p.data)
     end
 end
 
@@ -201,15 +202,15 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
 
     if blocked then return end
 
-    -- if we're holding an action, anything sent after it has to wait too.
-    -- an equip that slipped through would reach the server before the action,
-    -- reversing the order the client sent them in
+    -- if we're holding an action, equips sent after it have to be held too, so
+    -- they're released together with it instead of applying to nothing
     if (id == 0x050 or id == 0x051) and cs.pending and cs.pending.kind == 'packet' then
         table.insert(cs.pending.equips, { id = id, data = modified })
         return true
     end
 
     if not packet_is_gated(id, modified) then return end
+    if cs.gs_present and not injected then return end
     if not should_gate() then return end
 
     if cs.pending then
@@ -235,6 +236,7 @@ end)
 windower.register_event('unhandled command', function(cmd)
     if cs.gs_probe_deadline and cmd and cmd:lower() == 'gearswap' then
         cs.gs_probe_deadline = nil
+        cs.gs_present = false
     end
 end)
 
@@ -242,8 +244,11 @@ windower.register_event('prerender', function()
     -- probe wasn't echoed back as unhandled, so gearswap swallowed it and is loaded
     if cs.gs_probe_deadline and os.clock() >= cs.gs_probe_deadline then
         cs.gs_probe_deadline = nil
-        windower.add_to_chat(8, 'CastStill: GearSwap is loaded, reloading it so CastStill intercepts first.')
-        windower.send_command('lua reload gearswap')
+        cs.gs_present = true
+        if auto_order then
+            windower.add_to_chat(8, 'CastStill: GearSwap is loaded, reloading it so CastStill intercepts first.')
+            windower.send_command('lua reload gearswap')
+        end
     end
 
     if not cs.pending then return end
@@ -265,7 +270,7 @@ end)
 
 windower.register_event('load', function()
     windower.add_to_chat(8, 'CastStill v' .. _addon.version .. ' loaded.')
-    if auto_order and windower.file_exists(windower.addon_path .. '../GearSwap/GearSwap.lua') then
+    if windower.file_exists(windower.addon_path .. '../GearSwap/GearSwap.lua') then
         windower.send_command('@wait 0.5;gearswap')
         cs.gs_probe_deadline = os.clock() + 1.5
     end
