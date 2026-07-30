@@ -38,7 +38,7 @@ _addon.version  = '1.1.0'
 require('pack')
 
 local recent_window = 1.25
-local stop_window   = 0.35
+local stop_window   = 0.5
 local auto_order    = true
 
 local cs = {
