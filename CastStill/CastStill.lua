@@ -310,6 +310,7 @@ windower.register_event('prerender', function()
             -- it has to sit behind us
             if cs.gs_probe_reload then
                 cs.gs_probe_reload = false
+                windower.add_to_chat(8, 'CastStill: GearSwap is loaded, reloading it so CastStill intercepts first.')
                 windower.send_command('lua reload gearswap')
             end
         end
