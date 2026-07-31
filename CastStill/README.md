@@ -24,8 +24,8 @@ the lag after stopping; it can't make you cast while running.
 
 CastStill watches the position updates your client sends to the server. When
 you act too soon after moving, it holds the outgoing action packet and re-sends
-it once the server has confirmed where you're standing or after a short timeout,
-whichever comes first. The hold is never longer than .5 seconds.
+it once your client has reported the same position twice or after a short timeout,
+whichever comes first. The hold is never longer than .35 seconds.
 
 There's nothing to configure and no commands. The timings are tuned and fixed.
 
