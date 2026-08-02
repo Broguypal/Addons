@@ -33,7 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name     = 'CastStill'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.2.0'
+_addon.version  = '1.2.1'
 
 require('pack')
 local res = require('resources')
@@ -316,7 +316,7 @@ windower.register_event('prerender', function()
         end
     elseif os.clock() >= cs.gs_next_probe then
         local info = windower.ffxi.get_info()
-        if info and info.logged_in and not info.loading then
+        if info and not info.loading then
             cs.gs_next_probe  = os.clock() + probe_interval
             cs.gs_probe_until = os.clock() + probe_timeout
             windower.send_command('gearswap')
