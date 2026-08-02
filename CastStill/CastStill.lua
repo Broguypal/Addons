@@ -330,14 +330,17 @@ windower.register_event('prerender', function()
         return
     end
 
-    if not get_pos() then
-        cs.pending = nil
-        return
-    end
-
     if cs.is_settled and server_knows_pos() then
         fire_pending()
     end
+end)
+
+windower.register_event('zone change', function()
+    cs.pending        = nil
+    cs.last_reported  = nil
+    cs.last_move_time = -999
+    cs.is_settled     = true
+    cs.st_until       = 0
 end)
 
 windower.register_event('load', function()
