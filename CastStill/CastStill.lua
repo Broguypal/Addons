@@ -33,7 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name     = 'CastStill'
 _addon.author   = 'Broguypal'
-_addon.version  = '1.2.1'
+_addon.version  = '1.2.2'
 
 require('pack')
 local res = require('resources')
@@ -137,8 +137,8 @@ local function command_from_packet(id, data)
 
     if id == 0x037 then
         local target = data:unpack('I', 5)
-        local slot   = data:unpack('B', 15)
-        local bag    = data:unpack('B', 17)
+        local slot   = data:unpack('C', 15)
+        local bag    = data:unpack('C', 17)
 
         local token = token_for_id(target)
         if not token then return nil end
