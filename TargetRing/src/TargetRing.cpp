@@ -38,9 +38,17 @@ public:
         DeleteFileA(marker_path_);
     }
 
-    void __stdcall PostRender() override {
-        projection_matrices_valid_ = false;
+    void __stdcall PreRender() override {
+        prerender_matrices_valid_ = false;
+        if (!d3d_device_) {
+            acquire_device();
+        }
+        if (d3d_device_ && capture_projection_matrices_from_device()) {
+            prerender_matrices_valid_ = true;
+        }
+    }
 
+    void __stdcall PostRender() override {
         draw_ring_overlay();
     }
 
@@ -76,7 +84,11 @@ private:
         bool hostile = false;
         float model_size = 0.0f;
         float model_scale = 1.0f;
+        float radius = 0.0f;
+        bool has_radius = false;
         bool valid = false;
+        bool has_pos = false;
+        Position pos {};
     };
 
     static constexpr int ring_slices_ = 48;
@@ -109,6 +121,12 @@ private:
             return;
         }
 
+        if (target_.valid && target_.has_pos) {
+            Locator::discover_context_if_needed(target_.index, target_.pos);
+        } else if (subtarget_.valid && subtarget_.has_pos) {
+            Locator::discover_context_if_needed(subtarget_.index, subtarget_.pos);
+        }
+
         if (!d3d_device_) {
             acquire_device();
         }
@@ -117,58 +135,78 @@ private:
             return;
         }
 
+        IDirect3DSurface8* old_rt = nullptr;
+        IDirect3DSurface8* old_ds = nullptr;
+        IDirect3DSurface8* back = nullptr;
+        const bool rebound = bind_back_buffer(old_rt, old_ds, back);
+
         D3DVIEWPORT8 viewport {};
         if (FAILED(d3d_device_->GetViewport(&viewport)) || viewport.Width == 0 || viewport.Height == 0) {
+            restore_render_target(old_rt, old_ds, back, rebound);
             return;
         }
 
         if (!refresh_projection_matrices()) {
+            restore_render_target(old_rt, old_ds, back, rebound);
             return;
         }
 
         std::uintptr_t mob_array = 0;
-        if (!Locator::entity_table(mob_array)) {
-            return;
-        }
+        const bool have_table = Locator::entity_table(mob_array);
 
         const float phase = static_cast<float>(GetTickCount() % kPulsePeriodMs)
             / static_cast<float>(kPulsePeriodMs);
         const float pulse = 0.72f + 0.28f * std::sin(phase * 6.28318530718f);
 
         if (!begin_draw_state()) {
+            restore_render_target(old_rt, old_ds, back, rebound);
             return;
         }
 
         batch_vertex_count_ = 0;
 
         if (subtarget_.valid) {
-            draw_entity_ring(mob_array, subtarget_, viewport, entity_colour(subtarget_), pulse);
+            draw_entity_ring(mob_array, have_table, subtarget_, viewport,
+                entity_colour(subtarget_), pulse);
         }
 
         if (target_.valid) {
-            draw_entity_ring(mob_array, target_, viewport, entity_colour(target_), pulse);
+            draw_entity_ring(mob_array, have_table, target_, viewport,
+                entity_colour(target_), pulse);
         }
 
         flush_batch();
         end_draw_state();
+        restore_render_target(old_rt, old_ds, back, rebound);
+
     }
 
-    void draw_entity_ring(std::uintptr_t mob_array, const Entity& entity,
+    void draw_entity_ring(std::uintptr_t mob_array, bool have_table, const Entity& entity,
         const D3DVIEWPORT8& viewport, DWORD color, float pulse) {
-        std::uintptr_t actor = 0;
         Position root {};
-        if (!Locator::actor_for(mob_array, entity.index, actor)
-            || !Locator::ground_position(actor, root)) {
+        bool have_root = false;
+
+        if (have_table) {
+            std::uintptr_t actor = 0;
+            if (Locator::actor_for(mob_array, entity.index, actor)
+                && Locator::ground_position(actor, root)) {
+                have_root = true;
+            }
+        }
+        if (!have_root && entity.has_pos) {
+            root = entity.pos;
+            have_root = true;
+        }
+        if (!have_root) {
             return;
         }
 
-        const float radius = entity_radius(entity);
+        const float radius = entity.has_radius ? entity.radius : entity_radius(entity);
 
         draw_ground_ring(root, radius * 1.18f, radius * 0.34f,
             viewport, scale_alpha(color, 0.30f * pulse * kOpacity));
         draw_ground_ring(root, radius, radius * 0.12f,
             viewport, scale_alpha(color, 0.95f * pulse * kOpacity));
-
     }
 
     void draw_ground_ring(const Position& centre, float radius,
@@ -262,12 +300,14 @@ private:
 
     float entity_radius(const Entity& entity) const {
         static constexpr float kHumanoidExtent = 1.15f;
+        static constexpr float kDefaultSize = 1.0f;
 
         float footprint = kPlayerFootprint;
 
         if (entity.is_npc) {
             const float scale = entity.model_scale > 0.0f ? entity.model_scale : 1.0f;
-            float extent = entity.model_size > 0.0f ? entity.model_size * scale : kHumanoidExtent;
+            const float size = entity.model_size > 0.0f ? entity.model_size : kDefaultSize;
+            float extent = size * scale;
 
             if (extent > kHumanoidExtent) {
                 extent = kHumanoidExtent + std::sqrt(extent - kHumanoidExtent) * 0.62f;
@@ -313,16 +353,26 @@ private:
             : nullptr;
     }
 
-    bool refresh_projection_matrices() {
+    bool capture_projection_matrices_from_device() {
         if (!d3d_device_) {
             return false;
         }
 
-        if (FAILED(d3d_device_->GetTransform(D3DTS_VIEW, &cached_view_)) ||
-            FAILED(d3d_device_->GetTransform(D3DTS_PROJECTION, &cached_projection_))) {
-            projection_matrices_valid_ = false;
+        D3DMATRIX view {};
+        D3DMATRIX projection {};
+        if (FAILED(d3d_device_->GetTransform(D3DTS_VIEW, &view)) ||
+            FAILED(d3d_device_->GetTransform(D3DTS_PROJECTION, &projection))) {
             return false;
         }
+
+        const float view_trace = view.m[0][0] + view.m[1][1] + view.m[2][2];
+        const float proj_m11 = projection.m[1][1];
+        if (std::fabs(view_trace) < 0.0001f || std::fabs(proj_m11) < 0.0001f) {
+            return false;
+        }
+
+        cached_view_ = view;
+        cached_projection_ = projection;
 
         for (int row = 0; row < 4; ++row) {
             for (int column = 0; column < 4; ++column) {
@@ -336,6 +386,19 @@ private:
 
         projection_matrices_valid_ = true;
         return true;
+    }
+
+    bool refresh_projection_matrices() {
+        if (capture_projection_matrices_from_device()) {
+            return true;
+        }
+
+        if (prerender_matrices_valid_ && projection_matrices_valid_) {
+            return true;
+        }
+
+        projection_matrices_valid_ = false;
+        return false;
     }
 
     bool world_to_screen(const Position& point, const D3DVIEWPORT8& viewport,
@@ -396,8 +459,10 @@ private:
         d3d_device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
         d3d_device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
         d3d_device_->SetRenderState(D3DRS_ZENABLE, FALSE);
+        d3d_device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
         d3d_device_->SetRenderState(D3DRS_LIGHTING, FALSE);
         d3d_device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+        d3d_device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
         d3d_device_->SetVertexShader(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
 
         draw_state_active_ = true;
@@ -447,6 +512,52 @@ private:
         d3d_device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST,
             static_cast<UINT>(batch_vertex_count_ / 3), batch_vertices_, sizeof(DrawVertex));
         batch_vertex_count_ = 0;
+    }
+
+    bool bind_back_buffer(IDirect3DSurface8*& old_rt, IDirect3DSurface8*& old_ds,
+        IDirect3DSurface8*& back) {
+        old_rt = nullptr;
+        old_ds = nullptr;
+        back = nullptr;
+        if (!d3d_device_) {
+            return false;
+        }
+
+        if (FAILED(d3d_device_->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &back)) || !back) {
+            return false;
+        }
+
+        d3d_device_->GetRenderTarget(&old_rt);
+        d3d_device_->GetDepthStencilSurface(&old_ds);
+        if (old_rt == back) {
+            return true;
+        }
+
+        if (FAILED(d3d_device_->SetRenderTarget(back, old_ds))) {
+            return false;
+        }
+        return true;
+    }
+
+    void restore_render_target(IDirect3DSurface8* old_rt, IDirect3DSurface8* old_ds,
+        IDirect3DSurface8* back, bool rebound) {
+        if (!d3d_device_) {
+            return;
+        }
+
+        if (rebound && old_rt && old_rt != back) {
+            d3d_device_->SetRenderTarget(old_rt, old_ds);
+        }
+
+        if (old_rt) {
+            old_rt->Release();
+        }
+        if (old_ds) {
+            old_ds->Release();
+        }
+        if (back) {
+            back->Release();
+        }
     }
 
     struct MenuWatch {
@@ -616,16 +727,21 @@ private:
             return std::isfinite(value) && std::fabs(value) <= limit;
         }
 
-        static bool entity_table(std::uintptr_t& table) {
+        static std::uintptr_t& context_offset() {
+            static std::uintptr_t offset = kContextSlot;
+            return offset;
+        }
+
+        static bool& discovery_finished() {
+            static bool done = false;
+            return done;
+        }
+
+        static bool entity_table_at(std::uintptr_t core_base, std::uintptr_t offset,
+            std::uintptr_t& table) {
             table = 0;
-
-            HMODULE core = GetModuleHandleA("LuaCore.dll");
-            if (!core) {
-                return false;
-            }
-
             std::uintptr_t context = 0;
-            if (!fetch(reinterpret_cast<std::uintptr_t>(core) + kContextSlot, context)) {
+            if (!fetch(core_base + offset, context) || context == 0) {
                 return false;
             }
 
@@ -635,6 +751,73 @@ private:
             }
 
             return true;
+        }
+
+        static bool validate_context(std::uintptr_t core_base, std::uintptr_t offset,
+            DWORD index, const Position& hint) {
+            std::uintptr_t table = 0;
+            if (!entity_table_at(core_base, offset, table)) {
+                return false;
+            }
+
+            std::uintptr_t actor = 0;
+            Position root {};
+            if (!actor_for(table, index, actor) || !ground_position(actor, root)) {
+                return false;
+            }
+
+            const float dx = root.east - hint.east;
+            const float dy = root.north - hint.north;
+            const float dz = root.height - hint.height;
+            return (dx * dx + dy * dy + dz * dz) < 64.0f; // within 8 yalms of Lua hint
+        }
+
+        static void discover_context_if_needed(DWORD index, const Position& hint) {
+            if (discovery_finished() || index == 0) {
+                return;
+            }
+
+            HMODULE core = GetModuleHandleA("LuaCore.dll");
+            if (!core) {
+                discovery_finished() = true;
+                return;
+            }
+
+            const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(core);
+            if (validate_context(base, context_offset(), index, hint)) {
+                discovery_finished() = true;
+                return;
+            }
+
+            for (std::intptr_t delta = 4; delta <= 0x30000; delta += 4) {
+                const std::uintptr_t up = kContextSlot + static_cast<std::uintptr_t>(delta);
+                const std::uintptr_t down = kContextSlot - static_cast<std::uintptr_t>(delta);
+                if (validate_context(base, up, index, hint)) {
+                    context_offset() = up;
+                    discovery_finished() = true;
+                    return;
+                }
+                if (delta < static_cast<std::intptr_t>(kContextSlot)
+                    && validate_context(base, down, index, hint)) {
+                    context_offset() = down;
+                    discovery_finished() = true;
+                    return;
+                }
+            }
+
+            discovery_finished() = true;
+        }
+
+        static bool entity_table(std::uintptr_t& table) {
+            table = 0;
+
+            HMODULE core = GetModuleHandleA("LuaCore.dll");
+            if (!core) {
+                return false;
+            }
+
+            return entity_table_at(reinterpret_cast<std::uintptr_t>(core),
+                context_offset(), table);
         }
 
         static bool actor_for(std::uintptr_t table, DWORD index, std::uintptr_t& actor) {
@@ -764,7 +947,18 @@ private:
         entity.hostile = parse_json_bool(object, "\"hostile\"");
         entity.model_size = parse_json_float(object, "\"model_size\"");
         entity.model_scale = parse_json_float(object, "\"model_scale\"");
+        entity.radius = parse_json_float(object, "\"radius\"");
+        entity.has_radius = entity.radius > 0.05f;
         entity.valid = entity.index != 0 && entity.index < 0x900;
+        if (std::strstr(object, "\"x\"") && std::strstr(object, "\"y\"")
+            && std::strstr(object, "\"z\"")) {
+            entity.pos.east = parse_json_float(object, "\"x\"");
+            entity.pos.north = parse_json_float(object, "\"y\"");
+            entity.pos.height = parse_json_float(object, "\"z\"");
+            entity.has_pos = Locator::plausible(entity.pos.east, kWorldLimit)
+                && Locator::plausible(entity.pos.north, kWorldLimit)
+                && Locator::plausible(entity.pos.height, kWorldLimit);
+        }
         return entity;
     }
 
@@ -881,6 +1075,7 @@ private:
     D3DMATRIX cached_projection_ {};
     D3DMATRIX cached_view_projection_ {};
     bool projection_matrices_valid_ = false;
+    bool prerender_matrices_valid_ = false;
 
     DWORD saved_shader_ = 0;
     DWORD saved_alpha_ = 0;

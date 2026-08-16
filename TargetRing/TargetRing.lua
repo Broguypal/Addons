@@ -1,6 +1,6 @@
 _addon.name = 'TargetRing'
 _addon.author = 'Broguypal'
-_addon.version = '1.0.0'
+_addon.version = '1.1.0'
 _addon.commands = {'tring', 'targetring'}
 
 local plugin_name = 'TargetRing'
@@ -177,17 +177,59 @@ local function is_hostile(mob)
     return mob.claim_id ~= nil and mob.claim_id ~= 0
 end
 
+local function estimate_ring_radius(mob)
+    local humanoid = 1.15
+    local player_foot = 0.64
+    if not mob then
+        return player_foot
+    end
+    if not mob.is_npc then
+        return player_foot
+    end
+
+    local size = tonumber(mob.model_size) or 0
+    local scale = tonumber(mob.model_scale) or 1
+    if scale <= 0 then
+        scale = 1
+    end
+
+    local extent
+    if size > 0.05 then
+        extent = size * scale
+        if extent > humanoid then
+            extent = humanoid + math.sqrt(extent - humanoid) * 0.62
+        end
+    else
+        extent = humanoid * (0.5 / math.max(scale, 0.18))
+        if extent > 3.0 then
+            extent = 3.0 + math.sqrt(extent - 3.0) * 0.5
+        end
+    end
+
+    local footprint = extent * 0.5
+    if footprint < 0.45 then
+        footprint = 0.45
+    elseif footprint > 8 then
+        footprint = 8
+    end
+    return footprint
+end
+
 local function describe(mob)
     if not mob then
         return 'null'
     end
 
-    return ('{"index":%u,"npc":%s,"hostile":%s,"model_size":%.3f,"model_scale":%.3f}'):format(
+    return ('{"index":%u,"npc":%s,"hostile":%s,"model_size":%.3f,"model_scale":%.3f,"radius":%.3f,"x":%.3f,"y":%.3f,"z":%.3f}'):format(
         mob.index,
         mob.is_npc and 'true' or 'false',
         is_hostile(mob) and 'true' or 'false',
         tonumber(mob.model_size) or 0,
-        tonumber(mob.model_scale) or 1)
+        tonumber(mob.model_scale) or 1,
+        estimate_ring_radius(mob),
+        tonumber(mob.x) or 0,
+        tonumber(mob.y) or 0,
+        tonumber(mob.z) or 0)
 end
 
 local function first_subtarget()
@@ -217,8 +259,10 @@ local function report_status()
 
     local target = lookup('t')
     if target then
-        chat(207, ('Target: %s (%s)'):format(target.name or '?',
-            is_hostile(target) and 'enemy' or 'friendly'))
+        local size = tonumber(target.model_size) or 0
+        local scale = tonumber(target.model_scale) or 1
+        chat(207, ('Target: %s (%s)  size=%.3f scale=%.3f radius=%.2f'):format(target.name or '?',
+            is_hostile(target) and 'enemy' or 'friendly', size, scale, estimate_ring_radius(target)))
     else
         chat(207, 'No target selected.')
     end
