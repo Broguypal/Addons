@@ -5,9 +5,8 @@ Final Fantasy XI.
 
 The ring sits flat on the ground and scales with the size of the mob.
 
-<img width="249" height="301" alt="Screenshot 2026-08-15 201035" src="https://github.com/user-attachments/assets/bc9b7134-0037-4ba0-b8d7-61dbe371fd8d" />
-
-<img width="447" height="311" alt="Screenshot 2026-08-15 201126" src="https://github.com/user-attachments/assets/b076b4eb-1dbc-4de1-8ddb-0aaca096222e" />
+<img width="249" height="301" alt="Screenshot 2026-08-15 201035" src="https://github.com/user-attachments/assets/affe9810-acb7-42fa-9c4a-150a770a0768" />
+<img width="447" height="311" alt="Screenshot 2026-08-15 201126" src="https://github.com/user-attachments/assets/5be3bb00-4bde-4d2a-b0e2-e51fa8687a89" />
 
 ## Installation
 
