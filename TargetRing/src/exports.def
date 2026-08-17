@@ -1,4 +1,0 @@
-LIBRARY "TargetRing"
-EXPORTS
-    GetInterfaceVersion
-    CreateInstance
