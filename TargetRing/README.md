@@ -65,3 +65,5 @@ for the groundwork on earlier versions.
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
+
+Version 2.1.0
