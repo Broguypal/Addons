@@ -7,7 +7,9 @@ The ring sits flat on the ground, scales with the size of the mob, and tracks
 the model exactly while it moves. Enemies get a red ring, players and other
 friendly targets get a blue one.
 
-<!-- Screenshot goes here -->
+<img width="356" height="411" alt="image" src="https://github.com/user-attachments/assets/dc73bee9-7f17-4893-af15-a1b32a2f0665" />
+
+<img width="339" height="423" alt="image" src="https://github.com/user-attachments/assets/8b6a76eb-0f9d-4672-90db-2a9ca80c094f" />
 
 ## Installation
 
