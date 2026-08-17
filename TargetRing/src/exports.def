@@ -1,0 +1,3 @@
+LIBRARY "_TargetRing.dll"
+EXPORTS
+    luaopen__TargetRing
