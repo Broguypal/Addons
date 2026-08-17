@@ -66,4 +66,4 @@ for the groundwork on earlier versions.
 
 BSD 3-Clause. See [LICENSE](LICENSE).
 
-Version 2.1.0
+Current Version: 2.1.0
