@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(TargetRing
-    VERSION 2.2.1
+    VERSION 2.3.0
     LANGUAGES CXX
 )
 

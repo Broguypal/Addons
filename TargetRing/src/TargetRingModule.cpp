@@ -139,7 +139,13 @@ unsigned char g_original_bytes[kPrologueBytes] {};
 volatile bool g_hooked = false;
 std::uintptr_t g_renderer = 0;
 std::uintptr_t g_device = 0;
-volatile bool g_discovery_done = false;
+constexpr std::size_t kRendererScanWindow = 0x8000;
+constexpr std::size_t kDeviceVtableEntries = 90;
+constexpr unsigned long kDeviceRetryFrames = 30;
+constexpr unsigned long kMaxDeviceAttempts = 240;
+unsigned long g_device_frames = 0;
+unsigned long g_device_attempts = 0;
+bool g_device_foreign = false;
 char g_status[192] = "idle";
 
 bool page_readable(DWORD protect) {
@@ -1080,23 +1086,61 @@ void draw_all_rings() {
 // renderer holds d3d8 resources, and every IDirect3DResource8 can hand back its
 // creator via GetDevice at vtable slot 3. Scanning for a resource and asking it
 // is far more reliable than trying to recognise the device by its vtable.
+// A wrapper chain can leave the resources in d3d8.dll while the device object
+// itself lives in another module, so same-module is treated as confirmation
+// rather than a requirement. Anything else has to look structurally like a
+// device: the four slots we actually call must resolve to real code.
+bool plausible_device_vtable(std::uintptr_t vtable) {
+    if (!span_readable(vtable, sizeof(std::uintptr_t) * kDeviceVtableEntries)) {
+        return false;
+    }
+
+    static int const probes[] = { 2, 35, 41, 72 };
+    for (int slot : probes) {
+        std::uintptr_t entry = 0;
+        std::memcpy(&entry,
+            reinterpret_cast<void const*>(vtable + static_cast<std::uintptr_t>(slot) * sizeof(std::uintptr_t)),
+            sizeof(entry));
+        if (entry == 0) {
+            return false;
+        }
+
+        MEMORY_BASIC_INFORMATION region {};
+        if (!VirtualQuery(reinterpret_cast<void const*>(entry), &region, sizeof(region))
+            || region.State != MEM_COMMIT
+            || !page_executable(region.Protect)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void acquire_device(std::uintptr_t renderer) {
-    if (g_discovery_done || renderer == 0) {
+    if (d3d_device_ || renderer == 0 || g_device_attempts >= kMaxDeviceAttempts) {
         return;
     }
 
-    g_discovery_done = true;
+    ++g_device_frames;
+    if (g_device_attempts != 0 && (g_device_frames % kDeviceRetryFrames) != 0) {
+        return;
+    }
+
+    ++g_device_attempts;
 
     std::uintptr_t d3d_base = 0;
     std::size_t d3d_size = 0;
     if (!module_range("d3d8.dll", d3d_base, d3d_size)) {
+        std::snprintf(g_status, sizeof(g_status), "d3d8.dll not found");
         return;
     }
 
-    for (std::size_t offset = 0; offset + 4 <= 0x2000; offset += 4) {
+    // An unreadable slot is skipped rather than ending the scan; the renderer
+    // has gaps and the device resource can sit past them.
+    for (std::size_t offset = 0; offset + 4 <= kRendererScanWindow; offset += 4) {
         std::uintptr_t const slot = renderer + offset;
         if (!span_readable(slot, sizeof(std::uintptr_t))) {
-            break;
+            continue;
         }
 
         std::uintptr_t resource = 0;
@@ -1122,29 +1166,42 @@ void acquire_device(std::uintptr_t renderer) {
         }
 
         std::uintptr_t const address = reinterpret_cast<std::uintptr_t>(device);
+        auto release = reinterpret_cast<fn_release>(vtable_slot(address, 2));
+
         if (!span_readable(address, sizeof(std::uintptr_t))) {
+            if (release) {
+                release(device);
+            }
             continue;
         }
 
         std::uintptr_t device_vtable = 0;
         std::memcpy(&device_vtable, device, sizeof(device_vtable));
-        if (device_vtable < d3d_base || device_vtable >= d3d_base + d3d_size) {
+
+        bool const same_module = device_vtable >= d3d_base
+            && device_vtable < d3d_base + d3d_size;
+        if (!same_module && !plausible_device_vtable(device_vtable)) {
+            if (release) {
+                release(device);
+            }
             continue;
         }
 
         g_device = address;
         d3d_device_ = device;
+        g_device_foreign = !same_module;
 
-        auto release = reinterpret_cast<fn_release>(vtable_slot(address, 2));
         if (release) {
             release(device);
         }
 
-        std::snprintf(g_status, sizeof(g_status), "running");
+        std::snprintf(g_status, sizeof(g_status),
+            same_module ? "running" : "running (wrapped device)");
         return;
     }
 
-    std::snprintf(g_status, sizeof(g_status), "device not found in renderer");
+    std::snprintf(g_status, sizeof(g_status), "device not found in renderer (try %lu)",
+        g_device_attempts);
 }
 
 void __fastcall draw_scene_hook(void* renderer, void* unused) {
