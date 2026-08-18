@@ -1,6 +1,6 @@
 _addon.name = 'TargetRing'
 _addon.author = 'Broguypal'
-_addon.version = '2.1.0'
+_addon.version = '2.2.0'
 _addon.commands = {'tring', 'targetring'}
 
 local addon_path = windower.addon_path:gsub('\\', '/')
@@ -132,7 +132,9 @@ windower.register_event('addon command', function(command)
 
     command = command and command:lower() or 'status'
 
-    if command == 'on' then
+    if command == 'objects' then
+        chat(207, _TargetRing.objects())
+    elseif command == 'on' then
         _TargetRing.start()
         chat(207, 'enabled')
     elseif command == 'off' then

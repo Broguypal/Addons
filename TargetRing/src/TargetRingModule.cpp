@@ -106,6 +106,15 @@ constexpr DWORD kMaxIndex = 0x900;
 constexpr std::uintptr_t kEntityDisplayPos = 0x004;
 constexpr std::uintptr_t kEntityDisplayPtr = 0x0A0;
 constexpr std::uintptr_t kDisplayNameplateBase = 0x678;
+constexpr std::uintptr_t kDisplayPosition = 0x034;
+constexpr std::uintptr_t kEntityTargetType = 0x0EE;
+// target_type 3 covers doors, lamps and similar fixed-model objects. Their
+// entity record frequently sits at a staging position well away from where the
+// mesh is drawn, so the display object's own position is used instead.
+constexpr unsigned char kTargetTypeObject = 3;
+
+// 0 = use the display position, 1 = skip objects entirely, 2 = old behaviour.
+int g_object_mode = 0;
 constexpr std::size_t kPrologueBytes = 9;
 
 Ring g_rings[kMaxRings] {};
@@ -706,11 +715,25 @@ bool live_position(DWORD index, Position& out, float* heading_out) {
     float coords[3] {};
     bool have = false;
 
+    unsigned char target_type = 0;
+    if (span_readable(entity + kEntityTargetType, sizeof(target_type))) {
+        std::memcpy(&target_type, reinterpret_cast<void const*>(entity + kEntityTargetType),
+            sizeof(target_type));
+    }
+
+    const bool is_object = target_type == kTargetTypeObject;
+    if (is_object && g_object_mode == 1) {
+        return false;
+    }
+
+    const std::uintptr_t position_field = (is_object && g_object_mode == 0)
+        ? kDisplayPosition : kDisplayNameplateBase;
+
     if (span_readable(entity + kEntityDisplayPtr, sizeof(std::uintptr_t))) {
         std::uintptr_t display = 0;
         std::memcpy(&display, reinterpret_cast<void const*>(entity + kEntityDisplayPtr), sizeof(display));
-        if (display != 0 && span_readable(display + kDisplayNameplateBase, sizeof(float) * 3)) {
-            std::memcpy(coords, reinterpret_cast<void const*>(display + kDisplayNameplateBase),
+        if (display != 0 && span_readable(display + position_field, sizeof(float) * 3)) {
+            std::memcpy(coords, reinterpret_cast<void const*>(display + position_field),
                 sizeof(coords));
             have = true;
 
@@ -1260,6 +1283,19 @@ int __cdecl lua_stop(lua_State* L) {
     return 1;
 }
 
+int __cdecl lua_objects(lua_State* L) {
+    g_object_mode = (g_object_mode + 1) % 3;
+
+    static char const* const names[] = {
+        "objects: display position",
+        "objects: no ring",
+        "objects: nameplate base",
+    };
+
+    g_lua.pushstring(L, names[g_object_mode]);
+    return 1;
+}
+
 int __cdecl lua_status(lua_State* L) {
     char report[192] {};
     std::snprintf(report, sizeof(report), "%s, drawing %d ring(s)",
@@ -1347,7 +1383,7 @@ extern "C" __declspec(dllexport) int __cdecl luaopen__TargetRing(lua_State* L) {
 
     build_tables();
 
-    g_lua.createtable(L, 0, 5);
+    g_lua.createtable(L, 0, 6);
 
     g_lua.pushcclosure(L, lua_start, 0);
     g_lua.setfield(L, -2, "start");
@@ -1359,6 +1395,9 @@ extern "C" __declspec(dllexport) int __cdecl luaopen__TargetRing(lua_State* L) {
 
 
 
+
+    g_lua.pushcclosure(L, lua_objects, 0);
+    g_lua.setfield(L, -2, "objects");
 
     g_lua.pushcclosure(L, lua_status, 0);
     g_lua.setfield(L, -2, "status");
