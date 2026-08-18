@@ -1,6 +1,6 @@
 _addon.name = 'TargetRing'
 _addon.author = 'Broguypal'
-_addon.version = '2.2.0'
+_addon.version = '2.2.1'
 _addon.commands = {'tring', 'targetring'}
 
 local addon_path = windower.addon_path:gsub('\\', '/')
@@ -153,13 +153,17 @@ windower.register_event('prerender', function()
 
     _TargetRing.clear()
 
+    local target = lookup('t')
+    local subtarget = first_subtarget()
+
+    if not target and not subtarget then
+        return
+    end
+
     local player = windower.ffxi.get_player()
     if player and player.status == 4 then
         return
     end
-
-    local target = lookup('t')
-    local subtarget = first_subtarget()
 
     if target and subtarget and target.index == subtarget.index then
         subtarget = nil

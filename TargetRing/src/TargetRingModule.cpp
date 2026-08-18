@@ -78,11 +78,9 @@ constexpr float kGroundClearance = 0.05f;
 constexpr float kTwoPi = 6.28318530718f;
 constexpr std::uintptr_t kDisplayHeading = 0x048;
 
-// All ring geometry is expressed as a fraction of the entity's footprint radius
-// so it scales from a hare to a dragon without retuning.
-// The thick bright ring sits on the outside; a thin one runs inside it. The
-// glow is a wide, low-alpha pass drawn underneath at the same radius, which is
-// what gave earlier versions their bloom.
+// Ring geometry is a fraction of the entity's footprint radius so it scales from
+// a hare to a dragon without retuning. Thick bright ring outside, thin ring
+// inside, and a wide low-alpha glow pass underneath at the same radius.
 constexpr float kMainBand = 0.075f;
 constexpr float kGlowBand = 0.900f;
 constexpr float kGlowAlpha = 0.200f;
@@ -116,6 +114,9 @@ constexpr unsigned char kTargetTypeObject = 3;
 // 0 = use the display position, 1 = skip objects entirely, 2 = old behaviour.
 int g_object_mode = 0;
 constexpr std::size_t kPrologueBytes = 9;
+constexpr unsigned char kDrawScenePrologue[kPrologueBytes] = {
+    0x56, 0x8B, 0xF1, 0x8B, 0x86, 0x50, 0x0D, 0x00, 0x00,
+};
 
 Ring g_rings[kMaxRings] {};
 MotionState g_motion[kMaxIndex] {};
@@ -136,8 +137,6 @@ bool g_previous_volatile = false;
 std::uintptr_t g_draw_scene = 0;
 unsigned char g_original_bytes[kPrologueBytes] {};
 volatile bool g_hooked = false;
-volatile unsigned long g_frames = 0;
-volatile unsigned long g_draws = 0;
 std::uintptr_t g_renderer = 0;
 std::uintptr_t g_device = 0;
 volatile bool g_discovery_done = false;
@@ -152,6 +151,22 @@ bool page_readable(DWORD protect) {
     case PAGE_READONLY:
     case PAGE_READWRITE:
     case PAGE_WRITECOPY:
+    case PAGE_EXECUTE_READ:
+    case PAGE_EXECUTE_READWRITE:
+    case PAGE_EXECUTE_WRITECOPY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool page_executable(DWORD protect) {
+    if (protect & (PAGE_GUARD | PAGE_NOACCESS)) {
+        return false;
+    }
+
+    switch (protect & 0xFF) {
+    case PAGE_EXECUTE:
     case PAGE_EXECUTE_READ:
     case PAGE_EXECUTE_READWRITE:
     case PAGE_EXECUTE_WRITECOPY:
@@ -347,12 +362,6 @@ DWORD saved_cull_ = 0;
 DWORD saved_zfunc_ = 0;
 DWORD saved_zwrite_ = 0;
 
-// FFXI's third ground coordinate increases southward, so an angle taken from
-// the game mirrors across the east/west axis when applied to our (east, north)
-// ring space. Negating it corrects north/south and leaves east/west untouched.
-
-
-
 IDirect3DBaseTexture8* saved_texture_ = nullptr;
 bool draw_state_active_ = false;
 
@@ -399,8 +408,7 @@ void flush_batch();
 #define TARGETRING_CAMERA_FADE 1
 #endif
 
-// Set once per ring so every element fades on the side away from the camera,
-// which is what 1.x did and what reads correctly when the entity faces away.
+// Set once per ring so every element fades on the side away from the camera.
 float g_fade_hub = 0.0f;
 float g_fade_span = 1.0f;
 
@@ -576,6 +584,36 @@ void flush_batch() {
 }
 
 
+// Ring vertices share one ground plane, so the caller folds the constant height
+// row of the view-projection into const_x..const_w once instead of per point.
+bool project_flat(float d3d_x, float d3d_z,
+    float const_x, float const_y, float const_z, float const_w,
+    const D3DVIEWPORT8& viewport,
+    float& screen_x, float& screen_y, float& screen_rhw, float& screen_z) {
+    const D3DMATRIX& vp = cached_view_projection_;
+
+    const float clip_x = d3d_x * vp.m[0][0] + d3d_z * vp.m[2][0] + const_x;
+    const float clip_y = d3d_x * vp.m[0][1] + d3d_z * vp.m[2][1] + const_y;
+    const float clip_z = d3d_x * vp.m[0][2] + d3d_z * vp.m[2][2] + const_z;
+    const float clip_w = d3d_x * vp.m[0][3] + d3d_z * vp.m[2][3] + const_w;
+
+    if (std::fabs(clip_w) <= 0.0001f) {
+        return false;
+    }
+
+    const float ndc_x = clip_x / clip_w;
+    const float ndc_y = clip_y / clip_w;
+    if (clip_w < 0.0f || ndc_x < -4.0f || ndc_x > 4.0f || ndc_y < -4.0f || ndc_y > 4.0f) {
+        return false;
+    }
+
+    screen_x = static_cast<float>(viewport.X) + (ndc_x + 1.0f) * static_cast<float>(viewport.Width) * 0.5f;
+    screen_y = static_cast<float>(viewport.Y) + (1.0f - ndc_y) * static_cast<float>(viewport.Height) * 0.5f;
+    screen_rhw = 1.0f / clip_w;
+    screen_z = std::fmax(0.0f, std::fmin(1.0f, clip_z / clip_w));
+    return true;
+}
+
 void draw_ground_ring(const Position& centre, float radius,
     float band_width, const D3DVIEWPORT8& viewport, DWORD color) {
     if (radius <= 0.0f) {
@@ -594,6 +632,12 @@ void draw_ground_ring(const Position& centre, float radius,
         return;
     }
 
+
+    const D3DMATRIX& vp = cached_view_projection_;
+    const float const_x = hub.height * vp.m[1][0] + vp.m[3][0];
+    const float const_y = hub.height * vp.m[1][1] + vp.m[3][1];
+    const float const_z = hub.height * vp.m[1][2] + vp.m[3][2];
+    const float const_w = hub.height * vp.m[1][3] + vp.m[3][3];
 
     float inner_z[ring_slices_ + 1] {};
     float outer_z[ring_slices_ + 1] {};
@@ -614,15 +658,12 @@ void draw_ground_ring(const Position& centre, float radius,
         float inner_rhw = 1.0f;
         float outer_rhw = 1.0f;
 
-        const Position near_point {hub.east + inner_radius * cos_a,
-            hub.north + inner_radius * sin_a, hub.height};
-        const Position far_point {hub.east + outer_radius * cos_a,
-            hub.north + outer_radius * sin_a, hub.height};
-
-        const bool inner_ok = world_to_screen(near_point, viewport, inner_x[i], inner_y[i],
-            inner_rhw, inner_z[i]);
-        const bool outer_ok = world_to_screen(far_point, viewport, outer_x[i], outer_y[i],
-            outer_rhw, outer_z[i]);
+        const bool inner_ok = project_flat(hub.east + inner_radius * cos_a,
+            hub.north + inner_radius * sin_a, const_x, const_y, const_z, const_w,
+            viewport, inner_x[i], inner_y[i], inner_rhw, inner_z[i]);
+        const bool outer_ok = project_flat(hub.east + outer_radius * cos_a,
+            hub.north + outer_radius * sin_a, const_x, const_y, const_z, const_w,
+            viewport, outer_x[i], outer_y[i], outer_rhw, outer_z[i]);
         inner_w[i] = inner_rhw;
         outer_w[i] = outer_rhw;
 
@@ -967,6 +1008,8 @@ void draw_all_rings() {
 
     batch_vertex_count_ = 0;
 
+    DWORD const tick_count = GetTickCount();
+
     for (int i = 0; i < count && i < kMaxRings; ++i) {
         Ring const& ring = g_rings[i];
         if (!ring.active || ring.radius <= 0.0f) {
@@ -989,9 +1032,8 @@ void draw_all_rings() {
         // ring space. Negating it corrects north/south and leaves east/west alone.
         const float aim = -live.heading;
 
-        // Slow, shallow breathing so the ring feels alive without drawing the
-        // eye. One full cycle every few seconds.
-        const float phase = static_cast<float>(GetTickCount() % kPulsePeriodMs)
+        // Shallow pulse; one cycle every few seconds.
+        const float phase = static_cast<float>(tick_count % kPulsePeriodMs)
             / static_cast<float>(kPulsePeriodMs);
         const float pulse = 1.0f - kPulseDepth * 0.5f
             * (1.0f - std::cos(phase * kTwoPi));
@@ -1012,8 +1054,7 @@ void draw_all_rings() {
         const DWORD bright = scale_alpha(ring.color, 0.95f * pulse);
         const DWORD soft = scale_alpha(ring.color, 0.55f * pulse);
 
-        // Glow sits in the channel between the two rings rather than on top of
-        // the bright one, so it reads as fill rather than bloom.
+        // Glow sits in the channel between the two rings, not on the bright one.
         const float band_inner = ring.radius * kInnerScale;
         const float band_outer = ring.radius;
         const float band_mid = (band_inner + band_outer) * 0.5f;
@@ -1033,7 +1074,6 @@ void draw_all_rings() {
     flush_batch();
     end_draw_state();
     g_samples_fresh = false;
-    ++g_draws;
 }
 
 // FFXI does not keep the D3D8 device anywhere reachable by signature, but the
@@ -1117,18 +1157,142 @@ void __fastcall draw_scene_hook(void* renderer, void* unused) {
     }
 
     g_renderer = reinterpret_cast<std::uintptr_t>(renderer);
-    ++g_frames;
 
     acquire_device(g_renderer);
     draw_all_rings();
 }
 
+// Any addon that hooks draw_scene destroys the signature we scan for, so a
+// second addon can only find the function indirectly. Both known hooks copy the
+// original prologue into a trampoline and jump back to draw_scene+9; that copy
+// is a reliable beacon because it still carries the bytes FFXiMain no longer has.
+std::uintptr_t find_draw_scene_from_trampoline() {
+    std::uintptr_t ffxi_base = 0;
+    std::size_t ffxi_size = 0;
+    if (!module_range("FFXiMain.dll", ffxi_base, ffxi_size)) {
+        return 0;
+    }
+
+    MEMORY_BASIC_INFORMATION region {};
+    std::uintptr_t address = 0;
+    while (VirtualQuery(reinterpret_cast<void const*>(address), &region, sizeof(region))) {
+        std::uintptr_t const start = reinterpret_cast<std::uintptr_t>(region.BaseAddress);
+        std::size_t const size = region.RegionSize;
+        std::uintptr_t const next = start + size;
+
+        if (region.State == MEM_COMMIT
+            && page_executable(region.Protect)
+            && page_readable(region.Protect)
+            && size >= kPrologueBytes + 5) {
+            auto const* bytes = reinterpret_cast<unsigned char const*>(start);
+            for (std::size_t offset = 0; offset + kPrologueBytes + 5 <= size; ++offset) {
+                if (std::memcmp(bytes + offset, kDrawScenePrologue, kPrologueBytes) != 0
+                    || bytes[offset + kPrologueBytes] != 0xE9) {
+                    continue;
+                }
+
+                std::int32_t rel = 0;
+                std::memcpy(&rel, bytes + offset + kPrologueBytes + 1, sizeof(rel));
+                std::uintptr_t const jmp_at = start + offset + kPrologueBytes;
+                std::uintptr_t const dest = static_cast<std::uintptr_t>(
+                    static_cast<std::intptr_t>(jmp_at + 5) + rel);
+                if (dest < ffxi_base + kPrologueBytes || dest >= ffxi_base + ffxi_size) {
+                    continue;
+                }
+
+                std::uintptr_t const candidate = dest - kPrologueBytes;
+                if (!span_readable(candidate, 1)) {
+                    continue;
+                }
+
+                unsigned char head = 0;
+                std::memcpy(&head, reinterpret_cast<void const*>(candidate), 1);
+                if (head == 0xE9) {
+                    return candidate;
+                }
+            }
+        }
+
+        if (next <= address) {
+            break;
+        }
+        address = next;
+    }
+
+    return 0;
+}
+
+// Last resort for a hook that keeps no executable copy of the prologue. A jmp
+// leaving FFXiMain entirely is the discriminator: the module's own padding and
+// thunks stay inside it, so an E9 to foreign code is a hook and not a false hit.
+std::uintptr_t find_hooked_draw_scene() {
+    std::uintptr_t base = 0;
+    std::size_t image = 0;
+    if (!module_range("FFXiMain.dll", base, image)) {
+        return 0;
+    }
+
+    auto const* dos = reinterpret_cast<IMAGE_DOS_HEADER const*>(base);
+    auto const* nt = reinterpret_cast<IMAGE_NT_HEADERS32 const*>(
+        base + static_cast<std::uintptr_t>(dos->e_lfanew));
+    auto const* section = IMAGE_FIRST_SECTION(nt);
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section) {
+        if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0) {
+            continue;
+        }
+
+        std::uintptr_t const start = base + section->VirtualAddress;
+        std::size_t const span = section->Misc.VirtualSize;
+        if (span < kPrologueBytes || !span_readable(start, span)) {
+            continue;
+        }
+
+        auto const* bytes = reinterpret_cast<unsigned char const*>(start);
+        for (std::size_t offset = 0; offset + kPrologueBytes <= span; ++offset) {
+            if (bytes[offset] != 0xE9
+                || bytes[offset + 5] != 0x90
+                || bytes[offset + 6] != 0x90
+                || bytes[offset + 7] != 0x90
+                || bytes[offset + 8] != 0x90) {
+                continue;
+            }
+
+            std::int32_t rel = 0;
+            std::memcpy(&rel, bytes + offset + 1, sizeof(rel));
+            std::uintptr_t const dest = static_cast<std::uintptr_t>(
+                static_cast<std::intptr_t>(start + offset + 5) + rel);
+            if (dest >= base && dest < base + image) {
+                continue;
+            }
+
+            MEMORY_BASIC_INFORMATION region {};
+            if (!VirtualQuery(reinterpret_cast<void const*>(dest), &region, sizeof(region))
+                || region.State != MEM_COMMIT
+                || !page_executable(region.Protect)) {
+                continue;
+            }
+
+            return start + offset;
+        }
+    }
+
+    return 0;
+}
+
 std::uintptr_t find_draw_scene() {
-    static unsigned char const pattern[] = {
-        0x56, 0x8B, 0xF1, 0x8B, 0x86, 0x50, 0x0D, 0x00, 0x00,
-    };
     static char const mask[] = "xxxxxxxxx";
-    return scan_module("FFXiMain.dll", pattern, mask, sizeof(pattern));
+    std::uintptr_t const direct = scan_module("FFXiMain.dll", kDrawScenePrologue, mask,
+        kPrologueBytes);
+    if (direct != 0) {
+        return direct;
+    }
+
+    std::uintptr_t const via_trampoline = find_draw_scene_from_trampoline();
+    if (via_trampoline != 0) {
+        return via_trampoline;
+    }
+
+    return find_hooked_draw_scene();
 }
 
 // draw_scene's prologue is exactly 9 bytes across three whole instructions, so a
@@ -1200,7 +1364,10 @@ bool install_hook() {
     }
 
     auto* bytes = static_cast<unsigned char*>(trampoline);
-    std::memcpy(bytes, head, kPrologueBytes);
+    // Must be the untouched prologue, not head: when we chain, head is already
+    // another addon's jmp and a trampoline built from it would never reach the
+    // real function.
+    std::memcpy(bytes, kDrawScenePrologue, kPrologueBytes);
     bytes[kPrologueBytes] = 0xE9;
     std::int32_t const back = static_cast<std::int32_t>(
         (g_draw_scene + kPrologueBytes)
@@ -1245,6 +1412,7 @@ bool remove_hook() {
 
     // Only restore if ours is still the outermost hook; if another addon
     // hooked on top of us, restoring here would tear out their jump too.
+    bool restored = false;
     if (our_hook_installed()) {
         DWORD previous = 0;
         if (!VirtualProtect(reinterpret_cast<void*>(g_draw_scene), kPrologueBytes,
@@ -1255,6 +1423,7 @@ bool remove_hook() {
         std::memcpy(reinterpret_cast<void*>(g_draw_scene), g_original_bytes, kPrologueBytes);
         VirtualProtect(reinterpret_cast<void*>(g_draw_scene), kPrologueBytes, previous, &previous);
         FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(g_draw_scene), kPrologueBytes);
+        restored = true;
     }
 
     g_previous_hook = nullptr;
@@ -1267,6 +1436,13 @@ bool remove_hook() {
     // Give any thread currently inside the hook time to leave before the module
     // can be unloaded out from under it.
     Sleep(60);
+
+    // Left allocated while our jump is still live; the hook would still reach it.
+    if (restored && g_trampoline) {
+        VirtualFree(reinterpret_cast<void*>(g_trampoline), 0, MEM_RELEASE);
+        g_trampoline = nullptr;
+    }
+
     std::snprintf(g_status, sizeof(g_status), "unhooked");
     return true;
 }
@@ -1297,9 +1473,9 @@ int __cdecl lua_objects(lua_State* L) {
 }
 
 int __cdecl lua_status(lua_State* L) {
-    char report[192] {};
+    char report[256] {};
     std::snprintf(report, sizeof(report), "%s, drawing %d ring(s)",
-        g_hooked ? "running" : "stopped", g_ring_count);
+        g_status, g_ring_count);
     g_lua.pushstring(L, report);
     return 1;
 }
