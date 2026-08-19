@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <d3d8.h>
 
+#include "SceneHook.h"
+
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -38,7 +40,6 @@ struct LuaApi {
 };
 
 LuaApi g_lua {};
-HMODULE g_self = nullptr;
 
 struct Position {
     float east = 0.0f;
@@ -113,30 +114,15 @@ constexpr unsigned char kTargetTypeObject = 3;
 
 // 0 = use the display position, 1 = skip objects entirely, 2 = old behaviour.
 int g_object_mode = 0;
-constexpr std::size_t kPrologueBytes = 9;
-constexpr unsigned char kDrawScenePrologue[kPrologueBytes] = {
-    0x56, 0x8B, 0xF1, 0x8B, 0x86, 0x50, 0x0D, 0x00, 0x00,
-};
-
 Ring g_rings[kMaxRings] {};
 MotionState g_motion[kMaxIndex] {};
 volatile bool g_samples_fresh = false;
 volatile int g_ring_count = 0;
 
-using draw_scene_fn = void(__fastcall*)(void*, void*);
-draw_scene_fn g_trampoline = nullptr;
-// When another addon has already hooked draw_scene we chain to its handler
-// instead of the trampoline, so both draw and neither restores over the other.
-draw_scene_fn g_previous_hook = nullptr;
-// Chaining stores a pointer into another addon's module. If that addon unloads
-// first, ours would be calling freed code, so the module is pinned for as long
-// as we hold the pointer. Trampolines that live outside any module cannot be
-// pinned, and are revalidated each frame instead.
-HMODULE g_previous_module = nullptr;
-bool g_previous_volatile = false;
-std::uintptr_t g_draw_scene = 0;
-unsigned char g_original_bytes[kPrologueBytes] {};
-volatile bool g_hooked = false;
+// The scene hook owns the draw_scene patch; this module only registers a
+// callback with it. See ../SceneHook/SceneHook.md.
+SceneBus* g_bus = nullptr;
+int g_bus_slot = -1;
 std::uintptr_t g_renderer = 0;
 std::uintptr_t g_device = 0;
 constexpr std::size_t kRendererScanWindow = 0x8000;
@@ -145,7 +131,6 @@ constexpr unsigned long kDeviceRetryFrames = 30;
 constexpr unsigned long kMaxDeviceAttempts = 240;
 unsigned long g_device_frames = 0;
 unsigned long g_device_attempts = 0;
-bool g_device_foreign = false;
 char g_status[192] = "idle";
 
 bool page_readable(DWORD protect) {
@@ -589,7 +574,6 @@ void flush_batch() {
     batch_vertex_count_ = 0;
 }
 
-
 // Ring vertices share one ground plane, so the caller folds the constant height
 // row of the view-projection into const_x..const_w once instead of per point.
 bool project_flat(float d3d_x, float d3d_z,
@@ -637,7 +621,6 @@ void draw_ground_ring(const Position& centre, float radius,
     if (!world_to_screen(hub, viewport, hub_x, hub_y, hub_rhw) || hub_rhw <= 0.0f) {
         return;
     }
-
 
     const D3DMATRIX& vp = cached_view_projection_;
     const float const_x = hub.height * vp.m[1][0] + vp.m[3][0];
@@ -863,7 +846,6 @@ Position smooth_ring_position(DWORD index, Position const& target) {
     return state.pos;
 }
 
-
 // A flat triangle on the ground just outside the ring, pointing along the
 // entity's heading. Built in world space so it foreshortens with the ring.
 void draw_facing_arrow(const Position& centre, float radius, float heading,
@@ -987,7 +969,6 @@ void draw_ring_marker(const Position& centre, float radius, float at_angle, floa
             segment.u0, segment.v0, segment.u1, segment.v1, thick, viewport, color);
     }
 }
-
 
 void draw_all_rings() {
     if (!d3d_device_) {
@@ -1189,7 +1170,6 @@ void acquire_device(std::uintptr_t renderer) {
 
         g_device = address;
         d3d_device_ = device;
-        g_device_foreign = !same_module;
 
         if (release) {
             release(device);
@@ -1204,14 +1184,10 @@ void acquire_device(std::uintptr_t renderer) {
         g_device_attempts);
 }
 
-void __fastcall draw_scene_hook(void* renderer, void* unused) {
-    if (g_previous_hook
-        && (!g_previous_volatile
-            || span_readable(reinterpret_cast<std::uintptr_t>(g_previous_hook), 1))) {
-        g_previous_hook(renderer, unused);
-    } else if (g_trampoline) {
-        g_trampoline(renderer, unused);
-    }
+// Called from inside draw_scene, depth buffer still bound.
+void SCENEHOOK_ALIGN_STACK __cdecl scene_draw(void* user, void* renderer, void* device) {
+    (void)user;
+    (void)device;
 
     g_renderer = reinterpret_cast<std::uintptr_t>(renderer);
 
@@ -1219,288 +1195,40 @@ void __fastcall draw_scene_hook(void* renderer, void* unused) {
     draw_all_rings();
 }
 
-// Any addon that hooks draw_scene destroys the signature we scan for, so a
-// second addon can only find the function indirectly. Both known hooks copy the
-// original prologue into a trampoline and jump back to draw_scene+9; that copy
-// is a reliable beacon because it still carries the bytes FFXiMain no longer has.
-std::uintptr_t find_draw_scene_from_trampoline() {
-    std::uintptr_t ffxi_base = 0;
-    std::size_t ffxi_size = 0;
-    if (!module_range("FFXiMain.dll", ffxi_base, ffxi_size)) {
-        return 0;
-    }
-
-    MEMORY_BASIC_INFORMATION region {};
-    std::uintptr_t address = 0;
-    while (VirtualQuery(reinterpret_cast<void const*>(address), &region, sizeof(region))) {
-        std::uintptr_t const start = reinterpret_cast<std::uintptr_t>(region.BaseAddress);
-        std::size_t const size = region.RegionSize;
-        std::uintptr_t const next = start + size;
-
-        if (region.State == MEM_COMMIT
-            && page_executable(region.Protect)
-            && page_readable(region.Protect)
-            && size >= kPrologueBytes + 5) {
-            auto const* bytes = reinterpret_cast<unsigned char const*>(start);
-            for (std::size_t offset = 0; offset + kPrologueBytes + 5 <= size; ++offset) {
-                if (std::memcmp(bytes + offset, kDrawScenePrologue, kPrologueBytes) != 0
-                    || bytes[offset + kPrologueBytes] != 0xE9) {
-                    continue;
-                }
-
-                std::int32_t rel = 0;
-                std::memcpy(&rel, bytes + offset + kPrologueBytes + 1, sizeof(rel));
-                std::uintptr_t const jmp_at = start + offset + kPrologueBytes;
-                std::uintptr_t const dest = static_cast<std::uintptr_t>(
-                    static_cast<std::intptr_t>(jmp_at + 5) + rel);
-                if (dest < ffxi_base + kPrologueBytes || dest >= ffxi_base + ffxi_size) {
-                    continue;
-                }
-
-                std::uintptr_t const candidate = dest - kPrologueBytes;
-                if (!span_readable(candidate, 1)) {
-                    continue;
-                }
-
-                unsigned char head = 0;
-                std::memcpy(&head, reinterpret_cast<void const*>(candidate), 1);
-                if (head == 0xE9) {
-                    return candidate;
-                }
-            }
-        }
-
-        if (next <= address) {
-            break;
-        }
-        address = next;
-    }
-
-    return 0;
-}
-
-// Last resort for a hook that keeps no executable copy of the prologue. A jmp
-// leaving FFXiMain entirely is the discriminator: the module's own padding and
-// thunks stay inside it, so an E9 to foreign code is a hook and not a false hit.
-std::uintptr_t find_hooked_draw_scene() {
-    std::uintptr_t base = 0;
-    std::size_t image = 0;
-    if (!module_range("FFXiMain.dll", base, image)) {
-        return 0;
-    }
-
-    auto const* dos = reinterpret_cast<IMAGE_DOS_HEADER const*>(base);
-    auto const* nt = reinterpret_cast<IMAGE_NT_HEADERS32 const*>(
-        base + static_cast<std::uintptr_t>(dos->e_lfanew));
-    auto const* section = IMAGE_FIRST_SECTION(nt);
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section) {
-        if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0) {
-            continue;
-        }
-
-        std::uintptr_t const start = base + section->VirtualAddress;
-        std::size_t const span = section->Misc.VirtualSize;
-        if (span < kPrologueBytes || !span_readable(start, span)) {
-            continue;
-        }
-
-        auto const* bytes = reinterpret_cast<unsigned char const*>(start);
-        for (std::size_t offset = 0; offset + kPrologueBytes <= span; ++offset) {
-            if (bytes[offset] != 0xE9
-                || bytes[offset + 5] != 0x90
-                || bytes[offset + 6] != 0x90
-                || bytes[offset + 7] != 0x90
-                || bytes[offset + 8] != 0x90) {
-                continue;
-            }
-
-            std::int32_t rel = 0;
-            std::memcpy(&rel, bytes + offset + 1, sizeof(rel));
-            std::uintptr_t const dest = static_cast<std::uintptr_t>(
-                static_cast<std::intptr_t>(start + offset + 5) + rel);
-            if (dest >= base && dest < base + image) {
-                continue;
-            }
-
-            MEMORY_BASIC_INFORMATION region {};
-            if (!VirtualQuery(reinterpret_cast<void const*>(dest), &region, sizeof(region))
-                || region.State != MEM_COMMIT
-                || !page_executable(region.Protect)) {
-                continue;
-            }
-
-            return start + offset;
-        }
-    }
-
-    return 0;
-}
-
-std::uintptr_t find_draw_scene() {
-    static char const mask[] = "xxxxxxxxx";
-    std::uintptr_t const direct = scan_module("FFXiMain.dll", kDrawScenePrologue, mask,
-        kPrologueBytes);
-    if (direct != 0) {
-        return direct;
-    }
-
-    std::uintptr_t const via_trampoline = find_draw_scene_from_trampoline();
-    if (via_trampoline != 0) {
-        return via_trampoline;
-    }
-
-    return find_hooked_draw_scene();
-}
-
-// draw_scene's prologue is exactly 9 bytes across three whole instructions, so a
-// 5-byte jmp plus 4 nops replaces it without splitting one. Anything longer here
-// would need a length disassembler.
-bool our_hook_installed() {
-    if (g_draw_scene == 0 || !span_readable(g_draw_scene, 5)) {
-        return false;
-    }
-
-    unsigned char bytes[5] {};
-    std::memcpy(bytes, reinterpret_cast<void const*>(g_draw_scene), sizeof(bytes));
-    if (bytes[0] != 0xE9) {
-        return false;
-    }
-
-    std::int32_t rel = 0;
-    std::memcpy(&rel, bytes + 1, sizeof(rel));
-    std::uintptr_t const dest = static_cast<std::uintptr_t>(
-        static_cast<std::intptr_t>(g_draw_scene) + 5 + rel);
-    return dest == reinterpret_cast<std::uintptr_t>(&draw_scene_hook);
-}
-
 bool install_hook() {
-    if (our_hook_installed()) {
-        g_hooked = true;
-        return true;
+    if (!g_bus) {
+        g_bus = scenehook_attach();
     }
 
-    g_draw_scene = find_draw_scene();
-    if (g_draw_scene == 0) {
-        std::snprintf(g_status, sizeof(g_status), "draw_scene signature not found");
+    if (!g_bus) {
+        std::snprintf(g_status, sizeof(g_status),
+            "scene hook unavailable (another addon may be built against a different ABI)");
         return false;
     }
 
-    if (!span_readable(g_draw_scene, kPrologueBytes)) {
-        std::snprintf(g_status, sizeof(g_status), "draw_scene not readable");
+    if (!scenehook_ensure_hook(g_bus)) {
+        std::snprintf(g_status, sizeof(g_status), "%s", g_bus->status);
         return false;
     }
 
-    unsigned char head[kPrologueBytes] {};
-    std::memcpy(head, reinterpret_cast<void const*>(g_draw_scene), kPrologueBytes);
-    std::memcpy(g_original_bytes, head, kPrologueBytes);
-
-    // Someone else got here first: point at their handler rather than laying a
-    // second trampoline over the same bytes.
-    if (head[0] == 0xE9) {
-        std::int32_t rel = 0;
-        std::memcpy(&rel, head + 1, sizeof(rel));
-        std::uintptr_t const dest = static_cast<std::uintptr_t>(
-            static_cast<std::intptr_t>(g_draw_scene) + 5 + rel);
-        g_previous_hook = dest != reinterpret_cast<std::uintptr_t>(&draw_scene_hook)
-            ? reinterpret_cast<draw_scene_fn>(dest) : nullptr;
-
-        if (g_previous_hook) {
-            g_previous_module = nullptr;
-            g_previous_volatile = !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                reinterpret_cast<char const*>(g_previous_hook), &g_previous_module);
+    if (g_bus_slot < 0) {
+        g_bus_slot = scenehook_register(g_bus, &scene_draw, nullptr);
+        if (g_bus_slot < 0) {
+            std::snprintf(g_status, sizeof(g_status), "scene hook is full");
+            return false;
         }
-    } else {
-        g_previous_hook = nullptr;
     }
 
-    void* trampoline = VirtualAlloc(nullptr, kPrologueBytes + 5, MEM_COMMIT | MEM_RESERVE,
-        PAGE_EXECUTE_READWRITE);
-    if (!trampoline) {
-        std::snprintf(g_status, sizeof(g_status), "trampoline alloc failed");
-        return false;
-    }
-
-    auto* bytes = static_cast<unsigned char*>(trampoline);
-    // Must be the untouched prologue, not head: when we chain, head is already
-    // another addon's jmp and a trampoline built from it would never reach the
-    // real function.
-    std::memcpy(bytes, kDrawScenePrologue, kPrologueBytes);
-    bytes[kPrologueBytes] = 0xE9;
-    std::int32_t const back = static_cast<std::int32_t>(
-        (g_draw_scene + kPrologueBytes)
-        - (reinterpret_cast<std::uintptr_t>(bytes) + kPrologueBytes + 5));
-    std::memcpy(bytes + kPrologueBytes + 1, &back, sizeof(back));
-
-    DWORD previous = 0;
-    if (!VirtualProtect(reinterpret_cast<void*>(g_draw_scene), kPrologueBytes,
-        PAGE_EXECUTE_READWRITE, &previous)) {
-        std::snprintf(g_status, sizeof(g_status), "VirtualProtect failed");
-        return false;
-    }
-
-    auto* target = reinterpret_cast<unsigned char*>(g_draw_scene);
-    std::int32_t const jump = static_cast<std::int32_t>(
-        reinterpret_cast<std::uintptr_t>(&draw_scene_hook) - (g_draw_scene + 5));
-    target[0] = 0xE9;
-    std::memcpy(target + 1, &jump, sizeof(jump));
-    for (std::size_t i = 5; i < kPrologueBytes; ++i) {
-        target[i] = 0x90;
-    }
-
-    VirtualProtect(reinterpret_cast<void*>(g_draw_scene), kPrologueBytes, previous, &previous);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(g_draw_scene), kPrologueBytes);
-
-    g_trampoline = reinterpret_cast<draw_scene_fn>(trampoline);
-    g_hooked = true;
-    std::snprintf(g_status, sizeof(g_status),
-        g_previous_hook
-            ? (g_previous_volatile ? "running (chained, unpinned)" : "running (chained)")
-            : "running");
+    scenehook_set_enabled(g_bus, g_bus_slot, true);
+    std::snprintf(g_status, sizeof(g_status), "running");
     return true;
 }
 
+// The patch is shared and is never removed. The slot is released in DllMain.
 bool remove_hook() {
-    if (!g_hooked) {
-        return true;
-    }
-
     g_ring_count = 0;
-    g_hooked = false;
-
-    // Only restore if ours is still the outermost hook; if another addon
-    // hooked on top of us, restoring here would tear out their jump too.
-    bool restored = false;
-    if (our_hook_installed()) {
-        DWORD previous = 0;
-        if (!VirtualProtect(reinterpret_cast<void*>(g_draw_scene), kPrologueBytes,
-            PAGE_EXECUTE_READWRITE, &previous)) {
-            return false;
-        }
-
-        std::memcpy(reinterpret_cast<void*>(g_draw_scene), g_original_bytes, kPrologueBytes);
-        VirtualProtect(reinterpret_cast<void*>(g_draw_scene), kPrologueBytes, previous, &previous);
-        FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(g_draw_scene), kPrologueBytes);
-        restored = true;
-    }
-
-    g_previous_hook = nullptr;
-    g_previous_volatile = false;
-    if (g_previous_module) {
-        FreeLibrary(g_previous_module);
-        g_previous_module = nullptr;
-    }
-
-    // Give any thread currently inside the hook time to leave before the module
-    // can be unloaded out from under it.
-    Sleep(60);
-
-    // Left allocated while our jump is still live; the hook would still reach it.
-    if (restored && g_trampoline) {
-        VirtualFree(reinterpret_cast<void*>(g_trampoline), 0, MEM_RELEASE);
-        g_trampoline = nullptr;
-    }
-
-    std::snprintf(g_status, sizeof(g_status), "unhooked");
+    scenehook_set_enabled(g_bus, g_bus_slot, false);
+    std::snprintf(g_status, sizeof(g_status), "stopped");
     return true;
 }
 
@@ -1530,9 +1258,12 @@ int __cdecl lua_objects(lua_State* L) {
 }
 
 int __cdecl lua_status(lua_State* L) {
-    char report[256] {};
-    std::snprintf(report, sizeof(report), "%s, drawing %d ring(s)",
-        g_status, g_ring_count);
+    char bus[224] {};
+    scenehook_describe(g_bus, g_bus_slot, bus, sizeof(bus));
+
+    char report[384] {};
+    std::snprintf(report, sizeof(report), "%s, drawing %d ring(s) | %s",
+        g_status, g_ring_count, bus);
     g_lua.pushstring(L, report);
     return 1;
 }
@@ -1616,6 +1347,9 @@ extern "C" __declspec(dllexport) int __cdecl luaopen__TargetRing(lua_State* L) {
 
     build_tables();
 
+    g_ring_count = 0;
+    g_samples_fresh = false;
+
     g_lua.createtable(L, 0, 6);
 
     g_lua.pushcclosure(L, lua_start, 0);
@@ -1623,11 +1357,6 @@ extern "C" __declspec(dllexport) int __cdecl luaopen__TargetRing(lua_State* L) {
 
     g_lua.pushcclosure(L, lua_stop, 0);
     g_lua.setfield(L, -2, "stop");
-
-
-
-
-
 
     g_lua.pushcclosure(L, lua_objects, 0);
     g_lua.setfield(L, -2, "objects");
@@ -1646,11 +1375,13 @@ extern "C" __declspec(dllexport) int __cdecl luaopen__TargetRing(lua_State* L) {
     return 1;
 }
 
-BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        g_self = instance;
-    } else if (reason == DLL_PROCESS_DETACH) {
-        remove_hook();
+BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_DETACH) {
+        // Runs however the addon goes away, and before the image is
+        // unmapped. Hands the frame to a surviving client if we own it.
+        // may_wait is false: the loader lock is held here.
+        scenehook_unregister(g_bus, g_bus_slot, false);
+        g_bus_slot = -1;
     }
 
     return TRUE;

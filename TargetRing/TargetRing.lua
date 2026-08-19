@@ -1,6 +1,6 @@
 _addon.name = 'TargetRing'
 _addon.author = 'Broguypal'
-_addon.version = '2.3.0'
+_addon.version = '3.0.0'
 _addon.commands = {'tring', 'targetring'}
 
 local addon_path = windower.addon_path:gsub('\\', '/')
