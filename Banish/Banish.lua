@@ -29,7 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'Banish'
 _addon.author = 'Broguypal'
-_addon.version = '1.0.0'
+_addon.version = '1.1.0'
 _addon.commands = {'banish', 'ban'}
 
 require('logger')
@@ -40,9 +40,12 @@ local packets = require('packets')
 
 local settings = config.load({names = ''})
 
+local INDEX_TTL = 5
+
 local ignored = {}
 local ignored_ids = {}
 local ignored_indices = {}
+local index_seen = {}
 local suppressed_name = {}
 local roster = {}
 local last_warn = {}
@@ -86,10 +89,21 @@ local function safe_parse(dir, data)
     return nil
 end
 
+local function touch_index(index, id)
+    if not index then return end
+    ignored_indices[index] = id
+    index_seen[index] = os.clock()
+end
+
+local function index_is_fresh(index)
+    local seen = index_seen[index]
+    return seen ~= nil and (os.clock() - seen) < INDEX_TTL
+end
+
 local function remember(id, index, lname)
     ignored_ids[id] = true
     suppressed_name[id] = lname
-    if index then ignored_indices[index] = id end
+    touch_index(index, id)
 end
 
 local function forget(id)
@@ -97,7 +111,10 @@ local function forget(id)
     ignored_ids[id] = nil
     suppressed_name[id] = nil
     for index, eid in pairs(ignored_indices) do
-        if eid == id then ignored_indices[index] = nil end
+        if eid == id then
+            ignored_indices[index] = nil
+            index_seen[index] = nil
+        end
     end
 end
 
@@ -107,12 +124,13 @@ local function despawn(id, index)
         ['Index']   = index,
         ['Despawn'] = true,
     })
-    if not ok or not p then return end
+    if not ok or not p then return false end
 
     local built, data = pcall(packets.build, p)
-    if built and data then
-        windower.packets.inject_incoming(0x00D, data)
-    end
+    if not built or not data then return false end
+
+    windower.packets.inject_incoming(0x00D, data)
+    return true
 end
 
 local warn_line = _G.warning or error
@@ -182,6 +200,7 @@ windower.register_event('incoming chunk', function(id, original, _, injected, bl
     if id == 0x00A then
         ignored_ids = {}
         ignored_indices = {}
+        index_seen = {}
         suppressed_name = {}
         last_warn = {}
 
@@ -208,6 +227,7 @@ windower.register_event('incoming chunk', function(id, original, _, injected, bl
 
         if idx and ignored_indices[idx] and ignored_indices[idx] ~= pid then
             ignored_indices[idx] = nil
+            index_seen[idx] = nil
         end
 
         if ignored_ids[pid] then
@@ -216,7 +236,7 @@ windower.register_event('incoming chunk', function(id, original, _, injected, bl
                 forget(pid)
                 return
             end
-            if idx then ignored_indices[idx] = pid end
+            touch_index(idx, pid)
             return true
         end
 
@@ -246,38 +266,29 @@ windower.register_event('prerender', function()
     for _, mob in pairs(arr) do
         if type(mob) == 'table' and mob.is_npc == false and mob.name
            and is_ignored(mob.name) and not exempt(mob.name) then
-            remember(mob.id, mob.index, mob.name:lower())
-            despawn(mob.id, mob.index)
+            if despawn(mob.id, mob.index) then
+                remember(mob.id, mob.index, mob.name:lower())
+            end
         end
     end
 end)
 
-local outgoing_targets = {
-    [0x016] = {index = 'Target Index'},
-    [0x01A] = {index = 'Target Index', id = 'Target'},
-    [0x032] = {index = 'Target Index', id = 'Target'},
-    [0x05D] = {index = 'Target Index', id = 'Target ID'},
-    [0x06E] = {index = 'Target Index', id = 'Target'},
-    [0x0DD] = {index = 'Target Index', id = 'Target'},
-    [0x105] = {index = 'Target Index', id = 'Target'},
-}
-
 windower.register_event('outgoing chunk', function(id, original, _, injected, blocked)
     if blocked or injected then return end
-
-    local target = outgoing_targets[id]
-    if not target then return end
+    if id ~= 0x016 then return end
 
     local p = safe_parse('outgoing', original)
     if not p then return end
 
-    local eid = target.id and p[target.id]
-    local idx = p[target.index]
+    local idx = p['Target Index']
+    if not idx or idx == 0 then return end
 
-    if (eid and eid ~= 0 and ignored_ids[eid])
-       or (idx and idx ~= 0 and ignored_indices[idx]) then
-        return true
-    end
+    local eid = ignored_indices[idx]
+    if not eid or not ignored_ids[eid] then return end
+
+    if not index_is_fresh(idx) then return end
+
+    return true
 end)
 
 windower.register_event('addon command', function(cmd, ...)
@@ -309,8 +320,9 @@ windower.register_event('addon command', function(cmd, ...)
 
             local mob = find_mob(lname)
             if mob then
-                remember(mob.id, mob.index, lname)
-                despawn(mob.id, mob.index)
+                if despawn(mob.id, mob.index) then
+                    remember(mob.id, mob.index, lname)
+                end
             end
 
             log('Now hiding ' .. titlecase(name)
