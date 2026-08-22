@@ -14,7 +14,11 @@ Drop the folder in `Windower4/addons/`, then `//lua load vanish`.
 | Vanish | Everyone on the blacklist is hidden |
 | Vanishga | Only the whitelist is drawn |
 
-Alt+Space swaps modes. Party and alliance are always drawn, in both modes.
+A keybind can be added after first load in the `data > settings folder` to cycle 
+between modes:
+
+| `<keybind>!space</keybind>` | Makes the keybind alt + spacebar  |
+
 
 ## Commands
 

@@ -29,7 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'Vanish'
 _addon.author = 'Broguypal'
-_addon.version = '2.0.0'
+_addon.version = '2.0.1'
 _addon.commands = {'vanish', 'van'}
 
 require('logger')
@@ -46,7 +46,7 @@ local settings = config.load({
     mode      = 'vanish',
     blacklist = '',
     whitelist = '',
-    keybind   = '!space',
+    keybind   = '',
 })
 
 local MODE_ID = {vanish = 1, vanishga = 2}
