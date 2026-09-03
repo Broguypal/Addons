@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <tlhelp32.h>
 #include <d3d8.h>
 
 #include "SceneHook.h"
@@ -125,6 +126,7 @@ SceneBus* g_bus = nullptr;
 int g_bus_slot = -1;
 std::uintptr_t g_renderer = 0;
 std::uintptr_t g_device = 0;
+std::uintptr_t g_last_renderer = 0;
 constexpr std::size_t kRendererScanWindow = 0x8000;
 constexpr std::size_t kDeviceVtableEntries = 90;
 constexpr unsigned long kDeviceRetryFrames = 30;
@@ -185,11 +187,10 @@ bool span_readable(std::uintptr_t address, std::size_t size) {
     return address >= low && address + size <= low + region.RegionSize;
 }
 
-bool module_range(char const* name, std::uintptr_t& base, std::size_t& size) {
+bool module_range_from_handle(HMODULE module, std::uintptr_t& base, std::size_t& size) {
     base = 0;
     size = 0;
 
-    HMODULE module = GetModuleHandleA(name);
     if (!module) {
         return false;
     }
@@ -216,6 +217,10 @@ bool module_range(char const* name, std::uintptr_t& base, std::size_t& size) {
 
     size = nt->OptionalHeader.SizeOfImage;
     return size != 0;
+}
+
+bool module_range(char const* name, std::uintptr_t& base, std::size_t& size) {
+    return module_range_from_handle(GetModuleHandleA(name), base, size);
 }
 
 std::uintptr_t scan_module(char const* name, unsigned char const* pattern,
@@ -352,6 +357,7 @@ DWORD saved_lighting_ = 0;
 DWORD saved_cull_ = 0;
 DWORD saved_zfunc_ = 0;
 DWORD saved_zwrite_ = 0;
+DWORD saved_fog_ = 0;
 
 IDirect3DBaseTexture8* saved_texture_ = nullptr;
 bool draw_state_active_ = false;
@@ -505,6 +511,7 @@ bool begin_draw_state() {
     dev_GetRenderState(D3DRS_CULLMODE, &saved_cull_);
     dev_GetRenderState(D3DRS_ZFUNC, &saved_zfunc_);
     dev_GetRenderState(D3DRS_ZWRITEENABLE, &saved_zwrite_);
+    dev_GetRenderState(D3DRS_FOGENABLE, &saved_fog_);
     dev_GetTexture(0, &saved_texture_);
 
     dev_SetTexture(0, nullptr);
@@ -545,6 +552,7 @@ void end_draw_state() {
     dev_SetRenderState(D3DRS_CULLMODE, saved_cull_);
     dev_SetRenderState(D3DRS_ZFUNC, saved_zfunc_);
     dev_SetRenderState(D3DRS_ZWRITEENABLE, saved_zwrite_);
+    dev_SetRenderState(D3DRS_FOGENABLE, saved_fog_);
     dev_SetVertexShader(saved_shader_);
     draw_state_active_ = false;
 }
@@ -1097,8 +1105,221 @@ bool plausible_device_vtable(std::uintptr_t vtable) {
     return true;
 }
 
+constexpr std::size_t kMaxD3DModules = 8;
+
+struct D3DModuleRange {
+    std::uintptr_t base;
+    std::size_t size;
+};
+
+GUID const kIidDevice8 =
+    { 0x7385E5DF, 0x8FE8, 0x41D5, { 0x86, 0xB6, 0xD7, 0xB4, 0x85, 0x47, 0xB6, 0xCF } };
+GUID const kIidBaseTexture8 =
+    { 0xB4211CFA, 0x51B9, 0x4A9F, { 0xAB, 0x78, 0xDB, 0x99, 0xB2, 0xBB, 0x67, 0x8E } };
+GUID const kIidTexture8 =
+    { 0xE4CDD575, 0x2866, 0x4F01, { 0xB1, 0x2E, 0x7E, 0xEC, 0xE1, 0xEC, 0x93, 0x58 } };
+GUID const kIidSurface8 =
+    { 0xB96EEBCA, 0xB326, 0x4EA5, { 0x88, 0x2F, 0x2F, 0xF5, 0xBA, 0xE0, 0x21, 0xDD } };
+GUID const kIidVertexBuffer8 =
+    { 0x8AEEEAC7, 0x05F9, 0x44D4, { 0xB5, 0x91, 0x00, 0x0B, 0x0D, 0xF1, 0xCB, 0x95 } };
+GUID const kIidIndexBuffer8 =
+    { 0x0E689C9A, 0x053D, 0x44A0, { 0x9D, 0x92, 0xDB, 0x0E, 0x3D, 0x75, 0x0F, 0x86 } };
+GUID const kIidResource8 =
+    { 0x1B36BB7B, 0x09B7, 0x410A, { 0xB4, 0x45, 0x7D, 0x14, 0x30, 0xD7, 0xB3, 0x3F } };
+
+GUID const* const kResourceIids[] = {
+    &kIidBaseTexture8, &kIidTexture8, &kIidSurface8,
+    &kIidVertexBuffer8, &kIidIndexBuffer8, &kIidResource8,
+};
+
+__attribute__((noinline, optimize("no-omit-frame-pointer")))
+long call_com_2(void* fn, void* object, void* a) {
+    long result = 0;
+    __asm__ __volatile__(
+        "movl %%esp, %%ebx\n\t"
+        "pushl %2\n\t"
+        "pushl %3\n\t"
+        "call *%1\n\t"
+        "movl %%ebx, %%esp\n\t"
+        : "=a"(result)
+        : "m"(fn), "m"(a), "m"(object)
+        : "ebx", "ecx", "edx", "memory", "cc");
+    return result;
+}
+
+__attribute__((noinline, optimize("no-omit-frame-pointer")))
+long call_com_3(void* fn, void* object, void* a, void* b) {
+    long result = 0;
+    __asm__ __volatile__(
+        "movl %%esp, %%ebx\n\t"
+        "pushl %2\n\t"
+        "pushl %3\n\t"
+        "pushl %4\n\t"
+        "call *%1\n\t"
+        "movl %%ebx, %%esp\n\t"
+        : "=a"(result)
+        : "m"(fn), "m"(b), "m"(a), "m"(object)
+        : "ebx", "ecx", "edx", "memory", "cc");
+    return result;
+}
+
+void release_com(void* object) {
+    if (!object) {
+        return;
+    }
+    auto release = reinterpret_cast<fn_release>(
+        vtable_slot(reinterpret_cast<std::uintptr_t>(object), 2));
+    if (release) {
+        release(object);
+    }
+}
+
+bool query_interface(std::uintptr_t object, GUID const& iid, void*& out) {
+    out = nullptr;
+
+    void* fn = vtable_slot(object, 0);
+    if (!fn) {
+        return false;
+    }
+
+    long const hr = call_com_3(fn, reinterpret_cast<void*>(object),
+        const_cast<GUID*>(&iid), &out);
+    if (hr < 0 || out == nullptr) {
+        out = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void owning_module_name(std::uintptr_t address, char* out, std::size_t size) {
+    if (size == 0) {
+        return;
+    }
+    out[0] = '\0';
+
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<char const*>(address), &module)
+        || !module) {
+        return;
+    }
+
+    char path[MAX_PATH] {};
+    if (GetModuleFileNameA(module, path, MAX_PATH) == 0) {
+        return;
+    }
+
+    char const* leaf = std::strrchr(path, '\\');
+    leaf = leaf ? leaf + 1 : path;
+    std::snprintf(out, size, "%s", leaf);
+}
+
+std::size_t collect_d3d8_modules(D3DModuleRange* out, std::size_t capacity) {
+    std::size_t count = 0;
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    MODULEENTRY32 entry {};
+    entry.dwSize = sizeof(entry);
+    if (Module32First(snapshot, &entry)) {
+        do {
+            if (count >= capacity) {
+                break;
+            }
+            if (!entry.hModule || !GetProcAddress(entry.hModule, "Direct3DCreate8")) {
+                continue;
+            }
+
+            std::uintptr_t base = 0;
+            std::size_t size = 0;
+            if (!module_range_from_handle(entry.hModule, base, size)) {
+                continue;
+            }
+
+            out[count].base = base;
+            out[count].size = size;
+            ++count;
+        } while (Module32Next(snapshot, &entry));
+    }
+
+    CloseHandle(snapshot);
+    return count;
+}
+
+bool vtable_in_d3d8_module(
+    std::uintptr_t vtable, D3DModuleRange const* modules, std::size_t count) {
+    for (std::size_t index = 0; index < count; ++index) {
+        if (vtable >= modules[index].base
+            && vtable < modules[index].base + modules[index].size) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool candidate_at(
+    std::uintptr_t slot, D3DModuleRange const* modules, std::size_t count,
+    std::uintptr_t& object) {
+    if (!span_readable(slot, sizeof(std::uintptr_t))) {
+        return false;
+    }
+
+    object = 0;
+    std::memcpy(&object, reinterpret_cast<void const*>(slot), sizeof(object));
+    if (object == 0 || !span_readable(object, sizeof(std::uintptr_t))) {
+        return false;
+    }
+
+    std::uintptr_t vtable = 0;
+    std::memcpy(&vtable, reinterpret_cast<void const*>(object), sizeof(vtable));
+    return vtable_in_d3d8_module(vtable, modules, count);
+}
+
+bool adopt_device(
+    void* device, char const* how, D3DModuleRange const* modules, std::size_t count) {
+    std::uintptr_t const address = reinterpret_cast<std::uintptr_t>(device);
+    if (!span_readable(address, sizeof(std::uintptr_t))) {
+        return false;
+    }
+
+    std::uintptr_t device_vtable = 0;
+    std::memcpy(&device_vtable, device, sizeof(device_vtable));
+    if (!vtable_in_d3d8_module(device_vtable, modules, count)) {
+        return false;
+    }
+    if (!plausible_device_vtable(device_vtable)) {
+        return false;
+    }
+
+    g_device = address;
+    d3d_device_ = device;
+
+    char owner[64] {};
+    owning_module_name(device_vtable, owner, sizeof(owner));
+    std::snprintf(g_status, sizeof(g_status), "running (%s, device in %s)",
+        how, owner[0] ? owner : "unknown module");
+    return true;
+}
+
 void acquire_device(std::uintptr_t renderer) {
-    if (d3d_device_ || renderer == 0 || g_device_attempts >= kMaxDeviceAttempts) {
+    if (renderer == 0) {
+        return;
+    }
+
+    if (renderer != g_last_renderer) {
+        g_last_renderer = renderer;
+        d3d_device_ = nullptr;
+        g_device = 0;
+        g_device_attempts = 0;
+        g_device_frames = 0;
+    }
+
+    if (d3d_device_ || g_device_attempts >= kMaxDeviceAttempts) {
         return;
     }
 
@@ -1109,75 +1330,68 @@ void acquire_device(std::uintptr_t renderer) {
 
     ++g_device_attempts;
 
-    std::uintptr_t d3d_base = 0;
-    std::size_t d3d_size = 0;
-    if (!module_range("d3d8.dll", d3d_base, d3d_size)) {
-        std::snprintf(g_status, sizeof(g_status), "d3d8.dll not found");
+    D3DModuleRange modules[kMaxD3DModules] {};
+    std::size_t const module_count = collect_d3d8_modules(modules, kMaxD3DModules);
+    if (module_count == 0) {
+        std::snprintf(g_status, sizeof(g_status), "no d3d8 implementation found");
         return;
     }
 
     // An unreadable slot is skipped rather than ending the scan; the renderer
     // has gaps and the device resource can sit past them.
     for (std::size_t offset = 0; offset + 4 <= kRendererScanWindow; offset += 4) {
-        std::uintptr_t const slot = renderer + offset;
-        if (!span_readable(slot, sizeof(std::uintptr_t))) {
+        std::uintptr_t object = 0;
+        if (!candidate_at(renderer + offset, modules, module_count, object)) {
             continue;
         }
 
-        std::uintptr_t resource = 0;
-        std::memcpy(&resource, reinterpret_cast<void const*>(slot), sizeof(resource));
-        if (resource == 0 || !span_readable(resource, sizeof(std::uintptr_t))) {
+        void* device = nullptr;
+        if (!query_interface(object, kIidDevice8, device)) {
             continue;
         }
 
-        std::uintptr_t vtable = 0;
-        std::memcpy(&vtable, reinterpret_cast<void const*>(resource), sizeof(vtable));
-        if (vtable < d3d_base || vtable >= d3d_base + d3d_size) {
+        bool const adopted = adopt_device(device, "direct", modules, module_count);
+        release_com(device);
+        if (adopted) {
+            return;
+        }
+    }
+
+    for (std::size_t offset = 0; offset + 4 <= kRendererScanWindow; offset += 4) {
+        std::uintptr_t object = 0;
+        if (!candidate_at(renderer + offset, modules, module_count, object)) {
             continue;
         }
 
-        auto get_device = reinterpret_cast<fn_get_device>(vtable_slot(resource, 3));
+        bool confirmed = false;
+        for (GUID const* iid : kResourceIids) {
+            void* resource = nullptr;
+            if (query_interface(object, *iid, resource)) {
+                release_com(resource);
+                confirmed = true;
+                break;
+            }
+        }
+        if (!confirmed) {
+            continue;
+        }
+
+        void* get_device = vtable_slot(object, 3);
         if (!get_device) {
             continue;
         }
 
         void* device = nullptr;
-        if (get_device(reinterpret_cast<void*>(resource), &device) < 0 || !device) {
+        long const hr = call_com_2(get_device, reinterpret_cast<void*>(object), &device);
+        if (hr < 0 || !device) {
             continue;
         }
 
-        std::uintptr_t const address = reinterpret_cast<std::uintptr_t>(device);
-        auto release = reinterpret_cast<fn_release>(vtable_slot(address, 2));
-
-        if (!span_readable(address, sizeof(std::uintptr_t))) {
-            if (release) {
-                release(device);
-            }
-            continue;
+        bool const adopted = adopt_device(device, "resource", modules, module_count);
+        release_com(device);
+        if (adopted) {
+            return;
         }
-
-        std::uintptr_t device_vtable = 0;
-        std::memcpy(&device_vtable, device, sizeof(device_vtable));
-
-        bool const same_module = device_vtable >= d3d_base
-            && device_vtable < d3d_base + d3d_size;
-        if (!same_module && !plausible_device_vtable(device_vtable)) {
-            if (release) {
-                release(device);
-            }
-            continue;
-        }
-
-        g_device = address;
-        d3d_device_ = device;
-
-        if (release) {
-            release(device);
-        }
-
-        std::snprintf(g_status, sizeof(g_status),
-            same_module ? "running" : "running (wrapped device)");
-        return;
     }
 
     std::snprintf(g_status, sizeof(g_status), "device not found in renderer (try %lu)",
