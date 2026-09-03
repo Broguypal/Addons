@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Hivemind'
 _addon.author  = 'Broguypal + Frodobald'
-_addon.version = '1.0.3'
+_addon.version = '1.0.4'
 _addon.command = 'hivemind'
 
 local packets = require('packets')
@@ -243,9 +243,10 @@ local function open_input(text)
     input_scheduled = true
     windower.send_command('keyboard_type / ')
     coroutine.schedule(function()
-        if input_text then windower.chat.set_input(input_text) end
+        local text_to_set = input_text
         input_text = nil
         input_scheduled = false
+        if text_to_set then windower.chat.set_input(text_to_set) end
     end, 0.1)
 end
 
@@ -456,24 +457,30 @@ local maintenance
 maintenance = function()
     if not active then return end
 
-    local now_clock = os.clock()
-    local fresh = {}
-    for hash, ts in pairs(seen_ls) do
-        if (now_clock - ts) <= SEEN_TTL then fresh[hash] = ts end
-    end
-    seen_ls = fresh
-
-    if MY_NAME then
-        prune_presence()
-        local now = os.time()
-        if now - last_heartbeat >= settings.heartbeat_interval then
-            last_heartbeat = now
-            online_chars[MY_NAME] = now
-            broadcast('heartbeat', MY_NAME, 'alive')
-        end
-    end
-
     coroutine.schedule(maintenance, PRUNE_INTERVAL)
+
+    local ok, err = pcall(function()
+        local now_clock = os.clock()
+        local fresh = {}
+        for hash, ts in pairs(seen_ls) do
+            if (now_clock - ts) <= SEEN_TTL then fresh[hash] = ts end
+        end
+        seen_ls = fresh
+
+        if MY_NAME then
+            prune_presence()
+            local now = os.time()
+            if now - last_heartbeat >= settings.heartbeat_interval then
+                last_heartbeat = now
+                online_chars[MY_NAME] = now
+                broadcast('heartbeat', MY_NAME, 'alive')
+            end
+        end
+    end)
+
+    if not ok then
+        windower.add_to_chat(COLORS.info, '[Hivemind] maintenance error: ' .. tostring(err))
+    end
 end
 
 local function setup(name)
