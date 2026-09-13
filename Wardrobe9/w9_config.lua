@@ -123,6 +123,33 @@ return {
     },
 
     ---------------------------------------------------------------------------
+    -- PORTER IGNORE LIST (true = Porter Moogle panel leaves it alone)
+    --
+    -- This is for gear you own and need but never reference in a lua file.
+    -- Without it, Wardrobe9 sees no lua mentioning the item and assumes it is
+    -- safe to store away.
+    --
+    -- All final stage Ambuscade weapons are listed below by default
+    ---------------------------------------------------------------------------
+
+    PORTER_IGNORE_ITEMS = {
+        ["Karambit"]     = true,
+        ["Tauret"]       = true,
+        ["Naegling"]     = true,
+        ["Nandaka"]      = true,
+        ["Dolichenus"]   = true,
+        ["Lycurgos"]     = true,
+        ["Drepanum"]     = true,
+        ["Shining One"]  = true,
+        ["Gokotai"]      = true,
+        ["Hachimonji"]   = true,
+        ["Maxentius"]    = true,
+        ["Xoanon"]       = true,
+        ["Ullr"]         = true,
+        ["Khonsu"]       = true,
+    },
+
+    ---------------------------------------------------------------------------
     -- SOURCE BAG EXCLUSIONS
     -- true  = Wardrobe9 will NEVER move items FROM this bag into wardrobes
     ---------------------------------------------------------------------------

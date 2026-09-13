@@ -35,6 +35,8 @@ return function(ctx)
     local clear_log    = ctx.clear_log
     local push_log     = ctx.push_log
     local toggle_file_priority = ctx.toggle_file_priority
+    local click_dock           = ctx.click_dock
+    local update_dock_hover    = ctx.update_dock_hover
     local SB_HIT_PAD_X = ctx.SB_HIT_PAD_X
     local SB_HIT_PAD_Y = ctx.SB_HIT_PAD_Y
 
@@ -44,6 +46,7 @@ return function(ctx)
 
     local function update_hover(mx, my)
         state.hover = nil
+        if update_dock_hover and update_dock_hover(mx, my) then return end
 
         -- Check all buttons via BTN_DEFS.
         for _, def in ipairs(BTN_DEFS) do
@@ -357,6 +360,7 @@ return function(ctx)
 
         -- type 1: left down
         if type == 1 then
+            if click_dock and click_dock(x, y) then return true end
             if click_buttons(x, y)        then return true end
             if click_file_prio(x, y)      then return true end
             if click_file_list(x, y)      then return true end

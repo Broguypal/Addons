@@ -15,7 +15,7 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
-return function(res, util, config, scanmod, planner, execmod, mousemod, validate, prefs)
+return function(res, util, config, scanmod, planner, execmod, mousemod, validate, prefs, dock)
     local ui = {}
 
     local texts  = require('texts')
@@ -48,6 +48,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         fav_off        = ASSETS_DIR .. 'fav_off.png',  -- green circle, dimmed
         low_on         = ASSETS_DIR .. 'low_on.png',   -- red X, active
         low_off        = ASSETS_DIR .. 'low_off.png',  -- red X, dimmed
+
+        sw_on          = ASSETS_DIR .. 'sw_on.png',
+        sw_off         = ASSETS_DIR .. 'sw_off.png',
+        sw_hot         = ASSETS_DIR .. 'sw_hot.png',
     }
 
     -- ==========================================================================
@@ -77,6 +81,10 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
 
         LOG_ROWS    = 17,
         LOG_LABEL_H = 16,
+
+        SW_W        = 96,
+        SW_H        = 16,
+        SW_GAP      = 4,
 
         SB_W        = 12,
         SB_BTN_H    = 16,
@@ -165,6 +173,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         low     = {235, 95,  95,  255},   -- red    (low priority / bottom)
 
         btn_txt  = {255, 245, 245, 245},
+        tab_on   = {255, 255, 255, 255},   -- white  (selected tab)
+        tab_off  = {255, 150, 190, 255},   -- purple-pink (unselected tab)
 
         log_msg     = {255, 200, 220, 255},
         log_warn    = {255, 255, 220, 140},
@@ -259,6 +269,11 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     -- Collapse/expand toggle button (in header bar)
     local img_toggle = make_img(ASSET.chk_off)
     local t_toggle   = texts.new('')
+
+    local SW_DEFS = {}
+    for i, id in ipairs(dock.PANELS) do
+        SW_DEFS[i] = { id = id, label = dock.LABELS[id], img = make_img(ASSET.sw_off), text = texts.new('') }
+    end
 
     -- ==========================================================================
     -- Text objects (content only — transparent backgrounds)
@@ -508,6 +523,14 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         end
     end
 
+    function Rect.dock_tab(i)
+        local n = #SW_DEFS
+        local right = UI.x + PX.PANEL_W - PX.PAD - PX.CHK_SIZE - 8
+        local x = right - (n - i + 1) * PX.SW_W - (n - i) * PX.SW_GAP
+        local y = UI.y + math.floor((PX.HEADER_H - PX.SW_H) / 2)
+        return x, y, PX.SW_W, PX.SW_H
+    end
+
     -- Toggle button (far right of header)
     function Rect.toggle_btn()
         local tx = UI.x + PX.PANEL_W - PX.PAD - PX.CHK_SIZE
@@ -689,6 +712,13 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             if v then img:show() else img:hide() end
         end
 
+        if not v then
+            for _, sw in ipairs(SW_DEFS) do
+                sw.img:hide()
+                sw.text:visible(false)
+            end
+        end
+
         for i = 1, PX.FILE_ROWS do
             if v then img_row_sel[i]:show() else img_row_sel[i]:hide() end
             if v then img_chk[i]:show()     else img_chk[i]:hide()     end
@@ -726,12 +756,38 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         local fixed_txt = { t_title, t_status, t_log_title }
         for _, t in ipairs(fixed_txt) do apply_text_defaults(t) end
         for _, def in ipairs(BTN_DEFS) do apply_text_defaults(def.text) end
+        for _, sw in ipairs(SW_DEFS) do apply_text_defaults(sw.text) end
 
-        if not UI.visible then
+        if not UI.visible or dock.hidden_by_dock('mog') then
             Render.ensure_rows(t_file_rows, PX.FILE_ROWS)
             Render.ensure_rows(t_log_rows, PX.LOG_ROWS)
             set_all_visible(false)
             return
+        end
+
+        local function render_dock_tabs()
+            if not dock.dual() then
+                for _, sw in ipairs(SW_DEFS) do
+                    sw.img:hide()
+                    sw.text:visible(false)
+                end
+                return
+            end
+            for i, sw in ipairs(SW_DEFS) do
+                local sx, sy, sww, swh = Rect.dock_tab(i)
+                local on = (dock.active_panel() == sw.id)
+                local art = ASSET.sw_off
+                if on then art = ASSET.sw_on
+                elseif state.hover_sw == sw.id then art = ASSET.sw_hot end
+                sw.img:path(art)
+                Render.place_img(sw.img, sx, sy, sww, swh)
+                local lw = #sw.label * char_w()
+                sw.text:pos(sx + math.floor((sww - lw) / 2), sy + 1)
+                sw.text:text(sw.label)
+                set_color(sw.text, on and C.tab_on or C.tab_off)
+                sw.text:bg_alpha(0)
+                sw.text:visible(true)
+            end
         end
 
         -- ---- Collapsed mode: header bar + toggle only ----
@@ -754,6 +810,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             set_color(t_toggle, C.btn_txt)
             t_toggle:bg_alpha(0)
             t_toggle:visible(true)
+            render_dock_tabs()
             return
         end
 
@@ -779,6 +836,8 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
             t_toggle:bg_alpha(0)
             t_toggle:visible(true)
         end
+
+        render_dock_tabs()
 
         -- ---- Status text (truncated to panel width) ----
         local status_max = chars_in(PX.PANEL_W - PX.PAD * 2)
@@ -1317,6 +1376,29 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
         clear_log    = clear_log,
         push_log     = push_log,
         toggle_file_priority = toggle_file_priority,
+        click_dock = function(mx, my)
+            if not dock.dual() then return false end
+            for i, sw in ipairs(SW_DEFS) do
+                local x, y, w, h = Rect.dock_tab(i)
+                if Rect.point_in(mx, my, x, y, w, h) then
+                    dock.set_active(sw.id)
+                    return true
+                end
+            end
+            return false
+        end,
+        update_dock_hover = function(mx, my)
+            state.hover_sw = nil
+            if not dock.dual() then return false end
+            for i, sw in ipairs(SW_DEFS) do
+                local x, y, w, h = Rect.dock_tab(i)
+                if Rect.point_in(mx, my, x, y, w, h) then
+                    state.hover_sw = sw.id
+                    return true
+                end
+            end
+            return false
+        end,
         SB_HIT_PAD_X = SB_HIT_PAD_X,
         SB_HIT_PAD_Y = SB_HIT_PAD_Y,
     })
@@ -1349,13 +1431,16 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     end
 
     function ui.on_zone_or_login_refresh()
-        local mh = is_mog_house()
+        local mh = is_mog_house() or dock.is_mog_garden()
         if mh and not UI.visible then
             ui.show()
         elseif (not mh) and UI.visible then
             ui.hide()
         end
+        dock.set_available('mog', UI.visible)
     end
+
+    dock.register('mog', function() layout() end)
 
     -- ==========================================================================
     -- Events
@@ -1374,6 +1459,7 @@ return function(res, util, config, scanmod, planner, execmod, mousemod, validate
     end)
 
     windower.register_event('mouse', function(type, x, y, delta, blocked)
+        if dock.hidden_by_dock('mog') then return end
         return mouse.on_mouse(type, x, y, delta, blocked)
     end)
 

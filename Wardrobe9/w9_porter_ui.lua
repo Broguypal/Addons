@@ -15,7 +15,7 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ]]
 
-return function(res, util, config, planner, portermod, scanmod, execmod, bags, prefs)
+return function(res, util, config, planner, portermod, scanmod, execmod, bags, prefs, dock)
     local pui = {}
 
     local texts  = require('texts')
@@ -47,6 +47,20 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         fav_off        = ASSETS_DIR .. 'fav_off.png',
         low_on         = ASSETS_DIR .. 'low_on.png',
         low_off        = ASSETS_DIR .. 'low_off.png',
+
+        btn_full       = ASSETS_DIR .. 'btn_full.png',
+        btn_full_hover = ASSETS_DIR .. 'btn_full_hover.png',
+        btn_half       = ASSETS_DIR .. 'btn_half.png',
+        btn_half_hover = ASSETS_DIR .. 'btn_half_hover.png',
+        btn_third      = ASSETS_DIR .. 'btn_third.png',
+        btn_third_hover= ASSETS_DIR .. 'btn_third_hover.png',
+        tab_on         = ASSETS_DIR .. 'tab_on.png',
+        tab_off        = ASSETS_DIR .. 'tab_off.png',
+        tab_hot        = ASSETS_DIR .. 'tab_hot.png',
+        divider        = ASSETS_DIR .. 'divider.png',
+        sw_on          = ASSETS_DIR .. 'sw_on.png',
+        sw_off         = ASSETS_DIR .. 'sw_off.png',
+        sw_hot         = ASSETS_DIR .. 'sw_hot.png',
     }
 
     -- ==========================================================================
@@ -58,20 +72,31 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         PAD         = 8,
         HEADER_H    = 24,
 
-        BTN_W       = 228,
+        TAB_Y       = 26,
+        TAB_H       = 22,
+        TAB_GAP     = 3,
+        TAB_COUNT   = 3,
+
         BTN_H       = 18,
         BTN_GAP     = 8,
-        BTN_Y       = 30,
-        BTN_ROW2_Y  = 52,
-        BTN_ROW3_Y  = 74,
 
-        STATUS_Y    = 98,
-        FILE_Y      = 116,
+        SEC1_LBL_Y  = 54,
+        SEC1_BTN_Y  = 70,
+        SEC2_LBL_Y  = 92,
+        SEC2_BTN_Y  = 108,
+
+        DIV_Y       = 132,
+        STATUS_Y    = 140,
+        FILE_Y      = 160,
         FILE_ROWS   = 5,
 
         SECTION_GAP = 16,
         LOG_ROWS    = 12,
         LOG_LABEL_H = 16,
+
+        SW_W        = 96,
+        SW_H        = 16,
+        SW_GAP      = 4,
 
         SB_W        = 12,
         SB_BTN_H    = 16,
@@ -130,6 +155,9 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         text     = {255, 235, 235, 235},
         subtle   = {255, 190, 190, 190},
         btn_txt  = {255, 245, 245, 245},
+        tab_on   = {255, 255, 255, 255},
+        tab_off  = {255, 150, 190, 255}, 
+        step     = {255, 150, 190, 255},
         fav      = { 95, 220, 115, 255},
         low      = {235,  95,  95, 255}, 
         log_msg  = {255, 200, 220, 255},
@@ -144,11 +172,13 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
 
     local state = {
         collapsed      = true,
+        tab            = 1,
         files          = {},
         selected_set   = {},
         selected_index = nil,
-        status         = 'Ready. Select lua(s) and press RETRIEVAL SCAN.',
+        status         = 'Ready. Select lua(s) and press SCAN LUAS FOR MISSING.',
         hover          = nil,
+        hover_tab      = nil,
 
         file_scroll = 0,
 
@@ -164,7 +194,37 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
 
         last_identify  = nil,
         last_compat    = nil,
+        last_validate  = nil,
     }
+
+    local ALWAYS_ACCESSIBLE_BAGS = {
+        [0]=true, [5]=true, [6]=true, [7]=true,
+        [8]=true, [10]=true, [11]=true, [12]=true,
+        [13]=true, [14]=true, [15]=true, [16]=true,
+    }
+
+    local FULL_ACCESS_BAGS = { [1]=true, [2]=true, [4]=true, [9]=true }
+
+    -- Safe (1) and Safe 2 (9) are reachable from the Mog Garden, but they are
+    -- also where placed Mog House furniture lives. Placed furniture reports as
+    -- an ordinary item, cannot be moved, and cannot be told apart from loose
+    -- gear, so RETRIEVE UNUSED ITEMS AND SLIPS never pulls items out of them.
+    -- Slips themselves are still allowed to come from Safe / Safe 2 
+    local SAFE_BAGS = { [1]=true, [9]=true }
+
+    local function is_safe_bag(bag_id)
+        return SAFE_BAGS[bag_id] == true
+    end
+
+    local function bag_accessible(bag_id)
+        if ALWAYS_ACCESSIBLE_BAGS[bag_id] then
+            return bag_id == 0 or bags.bag_enabled(bag_id)
+        end
+        if FULL_ACCESS_BAGS[bag_id] and dock.is_mog_garden() then
+            return bags.bag_enabled(bag_id)
+        end
+        return false
+    end
 
     -- ==========================================================================
     -- Image / text helpers
@@ -234,19 +294,61 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
     local t_file_rows = {}
     local t_log_title = texts.new('')
     local t_log_rows  = {}
+    local t_sec1      = texts.new('')
+    local t_sec2      = texts.new('')
+
+    local img_divider = make_img(ASSET.divider)
+
+    local SW_DEFS = {}
+    for i, id in ipairs(dock.PANELS) do
+        SW_DEFS[i] = { id = id, label = dock.LABELS[id], img = make_img(ASSET.sw_off), text = texts.new('') }
+        apply_text_defaults(SW_DEFS[i].text)
+    end
+
+    local TAB_DEFS = {
+        { id=1, label='RETRIEVE ITEMS' },
+        { id=2, label='DEPOSIT ITEMS'  },
+        { id=3, label='VALIDATE SLIPS' },
+    }
+
+    for _, tab in ipairs(TAB_DEFS) do
+        tab.img  = make_img(ASSET.tab_off)
+        tab.text = texts.new('')
+        apply_text_defaults(tab.text)
+    end
+
+    local TAB_TITLES = {
+        [1] = { 'STEP 1  -  Scan Luas for Missing',
+                'STEP 2  -  Retrieve Missing  /  RETR+FILL  /  RETR+STORE' },
+        [2] = { 'STEP 1  -  Scan Inventory for Deposit',
+                'STEP 2  -  Deposit' },
+        [3] = { 'STEP 1  -  Validate All Slips  (tick lua\'s NOT to consider)',
+                'STEP 2  -  Retrieve Unused Items and Slips' },
+    }
 
     -- ==========================================================================
     -- Buttons
     -- ==========================================================================
 
     local BTN_DEFS = {
-        { id='identify',       label='RETRIEVAL SCAN',    row=1 },
-        { id='retrieve',       label='RETRIEVE',      row=1 },
-        { id='retrieve_fill',  label='RETR+FILL',     row=2 },
-        { id='retrieve_store', label='RETR+STORE',    row=2 },
-        { id='check_compat',   label='DEPOSIT SCAN',   row=3 },
-        { id='deposit_slips',  label='DEPOSIT', row=3 },
-        { id='toggle',         label='+',             toggle=true },
+        { id='identify',       label='SCAN LUAS FOR MISSING',      tab=1, row=1, slot='full'   },
+        { id='retrieve',       label='RETRIEVE MISSING',           tab=1, row=2, slot='third1' },
+        { id='retrieve_fill',  label='RETR+FILL',                  tab=1, row=2, slot='third2' },
+        { id='retrieve_store', label='RETR+STORE',                 tab=1, row=2, slot='third3' },
+        { id='check_compat',   label='SCAN INVENTORY FOR DEPOSIT', tab=2, row=1, slot='full'   },
+        { id='deposit_slips',  label='DEPOSIT',                    tab=2, row=2, slot='full'   },
+        { id='validate_slips', label='VALIDATE ALL SLIPS',         tab=3, row=1, slot='full'   },
+        { id='retrieve_unused',label='RETRIEVE UNUSED ITEMS AND SLIPS', tab=3, row=2, slot='full'   },
+        { id='toggle',         label='+',                          toggle=true },
+    }
+
+    local BTN_ART = {
+        full   = { ASSET.btn_full,  ASSET.btn_full_hover  },
+        half1  = { ASSET.btn_half,  ASSET.btn_half_hover  },
+        half2  = { ASSET.btn_half,  ASSET.btn_half_hover  },
+        third1 = { ASSET.btn_third, ASSET.btn_third_hover },
+        third2 = { ASSET.btn_third, ASSET.btn_third_hover },
+        third3 = { ASSET.btn_third, ASSET.btn_third_hover },
     }
 
     for _, def in ipairs(BTN_DEFS) do
@@ -254,7 +356,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
             def.img  = img_toggle
             def.text = t_toggle
         else
-            def.img  = make_img(ASSET.btn_porter)
+            def.art  = BTN_ART[def.slot] or BTN_ART.full
+            def.img  = make_img(def.art[1])
             def.text = texts.new('')
         end
         apply_text_defaults(def.text)
@@ -309,20 +412,52 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         return tx, ty, PX.CHK_SIZE, PX.CHK_SIZE
     end
 
+    function Rect.dock_tab(i)
+        local n = #SW_DEFS
+        local right = UI.x + PX.PANEL_W - PX.PAD - PX.CHK_SIZE - 8
+        local x = right - (n - i + 1) * PX.SW_W - (n - i) * PX.SW_GAP
+        local y = UI.y + math.floor((PX.HEADER_H - PX.SW_H) / 2)
+        return x, y, PX.SW_W, PX.SW_H
+    end
+
+    local function inner_w() return PX.PANEL_W - PX.PAD * 2 end
+
+    function Rect.tab(i)
+        local total = inner_w()
+        local tw = math.floor((total - PX.TAB_GAP * (PX.TAB_COUNT - 1)) / PX.TAB_COUNT)
+        local tx = UI.x + PX.PAD + (i - 1) * (tw + PX.TAB_GAP)
+        if i == PX.TAB_COUNT then
+            tw = (UI.x + PX.PAD + total) - tx
+        end
+        return tx, UI.y + PX.TAB_Y, tw, PX.TAB_H
+    end
+
+    local function slot_geom(slot)
+        local total = inner_w()
+        local base  = UI.x + PX.PAD
+        if slot == 'half1' or slot == 'half2' then
+            local w = math.floor((total - PX.BTN_GAP) / 2)
+            local i = (slot == 'half1') and 0 or 1
+            return base + i * (w + PX.BTN_GAP), w
+        end
+        if slot == 'third1' or slot == 'third2' or slot == 'third3' then
+            local w = math.floor((total - PX.BTN_GAP * 2) / 3)
+            local i = (slot == 'third1') and 0 or ((slot == 'third2') and 1 or 2)
+            return base + i * (w + PX.BTN_GAP), w
+        end
+        return base, total
+    end
+
     function Rect.button(def)
         if def.toggle then return Rect.toggle_btn() end
-        local bx = UI.x + PX.PAD
-        local row_y
-        if def.row == 3 then row_y = PX.BTN_ROW3_Y
-        elseif def.row == 2 then row_y = PX.BTN_ROW2_Y
-        else row_y = PX.BTN_Y end
-        local by = UI.y + row_y
-        -- Left or right in the row
-        if def.id == 'identify' or def.id == 'retrieve_fill' or def.id == 'check_compat' then
-            return bx, by, PX.BTN_W, PX.BTN_H
-        else
-            return bx + PX.BTN_W + PX.BTN_GAP, by, PX.BTN_W, PX.BTN_H
-        end
+        local row_y = (def.row == 2) and PX.SEC2_BTN_Y or PX.SEC1_BTN_Y
+        local bx, bw = slot_geom(def.slot)
+        return bx, UI.y + row_y, bw, PX.BTN_H
+    end
+
+    local function btn_active(def)
+        if def.toggle then return true end
+        return def.tab == state.tab
     end
 
     function Rect.file_list()
@@ -437,10 +572,20 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
 
     local function set_all_visible(v)
         local all_imgs = {
-            img_panel, img_header,
+            img_panel, img_header, img_divider,
             img_file_sb_track, img_file_sb_thumb, img_file_sb_up, img_file_sb_down,
             img_log_sb_track,  img_log_sb_thumb,  img_log_sb_up,  img_log_sb_down,
         }
+        for _, tab in ipairs(TAB_DEFS) do
+            if v then tab.img:show() else tab.img:hide() end
+            tab.text:visible(v)
+        end
+        if not v then
+            for _, sw in ipairs(SW_DEFS) do
+                sw.img:hide()
+                sw.text:visible(false)
+            end
+        end
         for _, img in ipairs(all_imgs) do
             if v then img:show() else img:hide() end
         end
@@ -461,7 +606,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
             img_toggle:hide()
             t_toggle:visible(false)
         end
-        local txts = { t_title, t_status, t_log_title }
+        local txts = { t_title, t_status, t_log_title, t_sec1, t_sec2 }
         for _, t in ipairs(txts) do if t then t:visible(v) end end
         for _, t in pairs(t_file_rows) do if t then t:visible(v) end end
         for _, t in pairs(t_log_rows)  do if t then t:visible(v) end end
@@ -472,15 +617,41 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
     -- ==========================================================================
 
     local function layout()
-        local fixed = { t_title, t_status, t_log_title }
+        local fixed = { t_title, t_status, t_log_title, t_sec1, t_sec2 }
         for _, t in ipairs(fixed) do apply_text_defaults(t) end
         for _, def in ipairs(BTN_DEFS) do apply_text_defaults(def.text) end
+        for _, tab in ipairs(TAB_DEFS) do apply_text_defaults(tab.text) end
 
-        if not UI.visible then
+        if not UI.visible or dock.hidden_by_dock('porter') then
             ensure_rows(t_file_rows, PX.FILE_ROWS)
             ensure_rows(t_log_rows, PX.LOG_ROWS)
             set_all_visible(false)
             return
+        end
+
+        local function render_dock_tabs()
+            if not dock.dual() then
+                for _, sw in ipairs(SW_DEFS) do
+                    sw.img:hide()
+                    sw.text:visible(false)
+                end
+                return
+            end
+            for i, sw in ipairs(SW_DEFS) do
+                local sx, sy, sw_w, sw_h = Rect.dock_tab(i)
+                local on = (dock.active_panel() == sw.id)
+                local art = ASSET.sw_off
+                if on then art = ASSET.sw_on
+                elseif state.hover_sw == sw.id then art = ASSET.sw_hot end
+                sw.img:path(art)
+                place_img(sw.img, sx, sy, sw_w, sw_h)
+                local lw = #sw.label * char_w()
+                sw.text:pos(sx + math.floor((sw_w - lw) / 2), sy + 1)
+                sw.text:text(sw.label)
+                set_color(sw.text, on and C.tab_on or C.tab_off)
+                sw.text:bg_alpha(0)
+                sw.text:visible(true)
+            end
         end
 
         -- ---- Collapsed mode: header bar + toggle only ----
@@ -503,6 +674,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
             set_color(t_toggle, C.btn_txt)
             t_toggle:bg_alpha(0)
             t_toggle:visible(true)
+            render_dock_tabs()
             return
         end
 
@@ -526,27 +698,70 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
             t_toggle:visible(true)
         end
 
-        -- Status
+        render_dock_tabs()
+
+        for i, tab in ipairs(TAB_DEFS) do
+            local tx, ty, tw, th = Rect.tab(i)
+            local active = (state.tab == i)
+            local art = ASSET.tab_off
+            if active then art = ASSET.tab_on
+            elseif state.hover_tab == i then art = ASSET.tab_hot end
+            tab.img:path(art)
+            place_img(tab.img, tx, ty, tw, th)
+
+            local label = tab.label
+            local maxc = chars_in(tw - 8)
+            if #label > maxc then label = label:sub(1, maxc) end
+            local lw = #label * char_w()
+            tab.text:pos(tx + math.floor((tw - lw) / 2), ty + 4)
+            tab.text:text(label)
+            set_color(tab.text, active and C.tab_on or C.tab_off)
+            tab.text:bg_alpha(0)
+            tab.text:visible(true)
+        end
+
+        local titles = TAB_TITLES[state.tab] or {}
+        local lblmax = chars_in(inner_w())
+
+        t_sec1:pos(UI.x + PX.PAD, UI.y + PX.SEC1_LBL_Y)
+        t_sec1:text((titles[1] or ''):sub(1, lblmax))
+        set_color(t_sec1, C.step)
+        t_sec1:visible(true)
+
+        t_sec2:pos(UI.x + PX.PAD, UI.y + PX.SEC2_LBL_Y)
+        t_sec2:text((titles[2] or ''):sub(1, lblmax))
+        set_color(t_sec2, C.step)
+        t_sec2:visible(true)
+
+        place_img(img_divider, UI.x + PX.PAD, UI.y + PX.DIV_Y, inner_w(), 2)
+
         local smax = chars_in(PX.PANEL_W - PX.PAD*2)
         t_status:pos(UI.x + PX.PAD, UI.y + PX.STATUS_Y)
         t_status:text((state.status or ''):sub(1, smax))
         set_color(t_status, C.subtle)
         t_status:visible(true)
 
-        -- Buttons
         for _, def in ipairs(BTN_DEFS) do
             if not def.toggle then
-            local bx, by, bw, bh = Rect.button(def)
-            local is_hover = (state.hover == def.id)
-            def.img:path(is_hover and ASSET.btn_porter_hover or ASSET.btn_porter)
-            place_img(def.img, bx, by, bw, bh)
-            local lw = #def.label * char_w()
-            def.text:pos(bx + math.floor((bw - lw)/2), by + 1)
-            def.text:text(def.label)
-            set_color(def.text, C.btn_txt)
-            def.text:bg_alpha(0)
-            def.text:visible(true)
-            end -- if not def.toggle
+                if btn_active(def) then
+                    local bx, by, bw, bh = Rect.button(def)
+                    local is_hover = (state.hover == def.id)
+                    def.img:path(is_hover and def.art[2] or def.art[1])
+                    place_img(def.img, bx, by, bw, bh)
+                    local label = def.label
+                    local maxc = chars_in(bw - 6)
+                    if #label > maxc then label = label:sub(1, maxc) end
+                    local lw = #label * char_w()
+                    def.text:pos(bx + math.floor((bw - lw)/2), by + 1)
+                    def.text:text(label)
+                    set_color(def.text, C.btn_txt)
+                    def.text:bg_alpha(0)
+                    def.text:visible(true)
+                else
+                    def.img:hide()
+                    def.text:visible(false)
+                end
+            end
         end
 
         -- File rows
@@ -654,6 +869,35 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         if UI.visible then layout() end
     end
 
+    local function wrap_text(s, width, cont_indent)
+        s = tostring(s or '')
+        width = math.max(8, tonumber(width) or 60)
+        cont_indent = cont_indent or ''
+        local out = {}
+        local function rtrim(x) return (x:gsub('%s+$', '')) end
+        local first = true
+        while #s > 0 do
+            local w = width
+            if not first then w = math.max(8, width - #cont_indent) end
+            if #s <= w then
+                local line = rtrim(s)
+                if not first and cont_indent ~= '' then line = cont_indent .. line end
+                out[#out+1] = line
+                break
+            end
+            local cut = w
+            local sub = s:sub(1, w)
+            local sp  = sub:match('^.*()%s')
+            if sp and sp > 8 then cut = sp end
+            local chunk = rtrim(s:sub(1, cut))
+            s = s:sub(cut + 1):gsub('^%s+', '')
+            if not first and cont_indent ~= '' then chunk = cont_indent .. chunk end
+            out[#out+1] = chunk
+            first = false
+        end
+        return out
+    end
+
     local function push_log(level, s)
         s = tostring(s or '')
         if s == '' then return end
@@ -664,11 +908,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
 
         local wrap_w = chars_in(content_w()) - 1
         local prefix = '[Porter] '
-        -- simple wrap
-        local full = prefix .. s
-        while #full > 0 do
-            local line = full:sub(1, wrap_w)
-            full = full:sub(wrap_w + 1)
+        local wrapped = wrap_text(prefix .. s, wrap_w, string.rep(' ', #prefix))
+        for _, line in ipairs(wrapped) do
             state.log_lines[#state.log_lines+1] = { text = line, color = color }
         end
         while #state.log_lines > state.log_max_lines do
@@ -751,7 +992,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         apply_priorities()
 
         ensure_file_scroll_valid()
-        state.status = ('Found %d GearSwap lua(s). Select file(s) and press RETRIEVAL SCAN.'):format(#state.files)
+        state.status = ('Found %d GearSwap lua(s). Select file(s), then use the tabs above.'):format(#state.files)
     end
 
     local function toggle_file_priority(abs, which)
@@ -796,11 +1037,34 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
     -- Actions
     -- ==========================================================================
 
+    local function report_ignored(n)
+        if not n or n <= 0 then return end
+        push_log('msg', ('Ignoring %d item(s) via PORTER_IGNORE_ITEMS.'):format(n))
+    end
+
+    local _ignore_warned = false
+    local function report_ignore_problems()
+        if _ignore_warned then return end
+        _ignore_warned = true
+        if not portermod.ignore_unknown_names then return end
+        local unknown = portermod.ignore_unknown_names()
+        if not unknown or #unknown == 0 then return end
+        push_log('warn', ('%d name(s) in PORTER_IGNORE_ITEMS match no known item:'):format(#unknown))
+        for i, nm in ipairs(unknown) do
+            if i > 10 then
+                push_log('warn', ('  ...and %d more'):format(#unknown - 10))
+                break
+            end
+            push_log('warn', ('  %s'):format(nm))
+        end
+        push_log('warn', 'Check the spelling in w9_config.lua.')
+    end
+
     local function do_identify()
         local files = selected_files_list()
         if #files == 0 then
             state.status = 'Check at least one lua file first.'
-            push_log('warn', 'Select lua file(s) before pressing RETRIEVAL SCAN.')
+            push_log('warn', 'Select lua file(s) before pressing SCAN LUAS FOR MISSING.')
             layout()
             return
         end
@@ -830,6 +1094,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         push_log('msg', ('File(s): %s'):format(result.label))
         push_log('msg', ('Items on slips: %d | Free inventory: %d'):format(
             #result.items, result.free_space))
+        report_ignored(result.ignored_count)
 
         -- Group by slip
         local by_slip = {}
@@ -871,9 +1136,9 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         local missing_count = 0
         for _ in pairs(result.slips_not_in_inv or {}) do missing_count = missing_count + 1 end
         if missing_count > 0 then
-            push_log('warn', ('Note: %d slip(s) are NOT in your inventory. Move them to inventory before pressing RETRIEVE.'):format(missing_count))
+            push_log('warn', ('Note: %d slip(s) are NOT in your inventory. Move them to inventory before pressing RETRIEVE MISSING.'):format(missing_count))
         else
-            push_log('ok', 'All required slips are in your inventory. Press RETRIEVE to continue.')
+            push_log('ok', 'All required slips are in your inventory. Press RETRIEVE MISSING to continue.')
         end
 
         layout()
@@ -886,8 +1151,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         end
 
         if not state.last_identify then
-            state.status = 'Press RETRIEVAL SCAN first.'
-            push_log('warn', 'You must press RETRIEVAL SCAN before RETRIEVE.')
+            state.status = 'Press SCAN LUAS FOR MISSING first.'
+            push_log('warn', 'Step 1 first: press SCAN LUAS FOR MISSING before RETRIEVE MISSING.')
             layout()
             return
         end
@@ -1245,6 +1510,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         state.status = ('%d item(s) in inventory can be stored on slips.'):format(#result.items)
 
         push_log('msg', ('Found %d item(s) that can be deposited into slips:'):format(#result.items))
+        report_ignored(result.ignored_count)
 
         -- Group by slip
         local by_slip = {}
@@ -1289,7 +1555,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         if missing_count > 0 then
             push_log('warn', ('%d slip(s) are NOT in your inventory. Those items will be skipped. Move slips to inventory to deposit all.'):format(missing_count))
         else
-            push_log('ok', 'All required slips are in your inventory. Press DEPOSIT SLIPS to store items.')
+            push_log('ok', 'All required slips are in your inventory. Press DEPOSIT to store items.')
         end
 
         layout()
@@ -1306,8 +1572,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         end
 
         if not state.last_compat then
-            state.status = 'Press DEPOSIT SCAN first.'
-            push_log('warn', 'You must press DEPOSIT SCAN before DEPOSIT.')
+            state.status = 'Press SCAN INVENTORY FOR DEPOSIT first.'
+            push_log('warn', 'Step 1 first: press SCAN INVENTORY FOR DEPOSIT before DEPOSIT.')
             layout()
             return
         end
@@ -1364,6 +1630,372 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         end
     end
 
+    local function do_validate_slips()
+        if portermod.is_busy() then
+            push_log('warn', 'Porter operation in progress.')
+            return
+        end
+
+        clear_log()
+
+        local files = selected_files_list()
+        local result, err = portermod.validate_all_slips(files)
+        if not result then
+            state.status = tostring(err)
+            push_log('err', tostring(err))
+            layout()
+            return
+        end
+
+        local excl_count = #files
+
+        push_log('msg', 'Validate All Slips')
+        push_log('msg', ('Searched %d container(s) for slip-storable gear.'):format(result.bags_scanned))
+        report_ignored(result.ignored_count)
+        report_ignore_problems()
+        if excl_count == 0 then
+            push_log('warn', 'No lua(s) checked - listing every match, including gear you use.')
+            push_log('warn', 'Tick lua(s) below to leave their items out of this report.')
+        else
+            push_log('msg', ('Excluding items from: %s'):format(result.label))
+            push_log('msg', ('Ignored %d item(s) from %d gear name(s).')
+                :format(result.excluded_items, result.excluded_name_count))
+        end
+
+        if #result.items == 0 then
+            state.status = 'Validate: nothing left that can be stored on a slip.'
+            push_log('ok', 'No storable items found outside those lua(s).')
+            layout()
+            return
+        end
+
+        local function item_state(item)
+            if is_safe_bag(item.bag_id) then return 'safe' end
+            if not bag_accessible(item.bag_id) then return 'far' end
+            return ''
+        end
+
+        local safe_total, far_total = 0, 0
+        for _, item in ipairs(result.items) do
+            local st = item_state(item)
+            if st == 'safe' then safe_total = safe_total + 1
+            elseif st == 'far' then far_total = far_total + 1 end
+        end
+
+        state.last_validate = result
+        state.status = ('Validate: %d item(s) across %d slip(s). Excluded: %d lua(s)')
+            :format(#result.items, result.slip_count, excl_count)
+
+        push_log('ok', ('%d item(s) can be moved onto %d slip(s):')
+            :format(#result.items, result.slip_count))
+        if safe_total > 0 then
+            push_log('warn', ('%d of those sit in Safe / Safe 2 and will not be retrieved.')
+                :format(safe_total))
+        end
+        if far_total > 0 then
+            push_log('warn', ('%d of those sit in a bag you cannot reach from here.')
+                :format(far_total))
+        end
+
+        local by_slip = {}
+        local order = {}
+        for _, item in ipairs(result.items) do
+            if not by_slip[item.slip_label] then
+                by_slip[item.slip_label] = {}
+                order[#order+1] = item.slip_label
+            end
+            local list = by_slip[item.slip_label]
+            list[#list+1] = item
+        end
+        table.sort(order)
+
+        for _, label in ipairs(order) do
+            local items = by_slip[label]
+            local sid   = items[1].slip_item_id
+            local loc   = result.slips_not_in_inv[sid]
+            local tag
+            local slip_far = false
+            if result.slips_in_inv[sid] then
+                tag = ' (in Inventory)'
+            elseif type(loc) == 'string' then
+                tag = (' (in %s)'):format(loc)
+                local loc_id = bags.bag_id_by_name(loc)
+                slip_far = (loc_id ~= nil) and not bag_accessible(loc_id)
+            else
+                tag = ' (not owned - buy it)'
+            end
+            push_log('msg', ('--- %s%s | %d item(s) ---'):format(label, tag, #items))
+            if slip_far then
+                push_log('warn', '  ^ slip inaccessible - skipped')
+            end
+            for i, item in ipairs(items) do
+                if i > 60 then
+                    push_log('msg', ('  ...and %d more'):format(#items - 60))
+                    break
+                end
+                local qty = (item.count and item.count > 1) and (' x%d'):format(item.count) or ''
+                local st  = item_state(item)
+                if st == 'safe' then
+                    push_log('warn', ('  %s%s - %s  [SAFE - skipped]')
+                        :format(item.name, qty, item.bag_name))
+                elseif st == 'far' then
+                    push_log('warn', ('  %s%s - %s  [inaccessible - skipped]')
+                        :format(item.name, qty, item.bag_name))
+                else
+                    push_log('msg', ('  %s%s - %s'):format(item.name, qty, item.bag_name))
+                end
+            end
+        end
+
+        push_log('msg', '')
+        if safe_total > 0 then
+            push_log('warn', ('%d row(s) marked [SAFE - skipped] live in Safe / Safe 2. RETRIEVE UNUSED ITEMS AND SLIPS leaves those alone, because those bags also hold placed furniture that cannot be moved. Move any you do want out of Safe / Safe 2 by hand first.'):format(safe_total))
+        end
+        if far_total > 0 then
+            push_log('warn', ('%d row(s) marked [inaccessible - skipped] are in a bag you cannot open from here. Only Mog Satchel, Mog Sack, Mog Case and Wardrobes 1-8 work anywhere; the rest need you to be in your Mog Garden.'):format(far_total))
+        end
+        if safe_total > 0 or far_total > 0 then
+            push_log('msg', '')
+        end
+        push_log('warn', 'Nothing was moved. This is a report only.')
+        push_log('warn', 'Press RETRIEVE UNUSED ITEMS AND SLIPS to pull the unmarked rows and their slips into your inventory.')
+
+        layout()
+    end
+
+    local function inventory_free()
+        local ok, bi = pcall(windower.ffxi.get_bag_info, 0)
+        if not ok or not bi then return 0 end
+        return math.max(0, (bi.max or 0) - (bi.count or 0))
+    end
+
+    local function do_retrieve_unused()
+        if portermod.is_busy() then
+            push_log('warn', 'Porter operation in progress.')
+            return
+        end
+
+        if not state.last_validate then
+            state.status = 'Press VALIDATE ALL SLIPS first.'
+            push_log('warn', 'Step 1 first: press VALIDATE ALL SLIPS.')
+            layout()
+            return
+        end
+
+        local files = selected_files_list()
+        local result, err = portermod.validate_all_slips(files)
+        if not result then
+            state.status = tostring(err)
+            push_log('err', tostring(err))
+            layout()
+            return
+        end
+        state.last_validate = result
+
+        clear_log()
+
+        if #result.items == 0 then
+            state.status = 'Retrieve Unused - nothing to move.'
+            push_log('ok', 'No unused slip-storable items were found.')
+            layout()
+            return
+        end
+
+        -- Drop anything sitting in Safe / Safe 2 before we group. Those bags
+        -- hold placed Mog House furniture, which looks like a normal item but
+        -- cannot be moved, so attempting it just stalls the run.
+        local retrievable   = {}
+        local safe_skipped  = 0
+        for _, item in ipairs(result.items) do
+            if is_safe_bag(item.bag_id) then
+                safe_skipped = safe_skipped + 1
+            else
+                retrievable[#retrievable+1] = item
+            end
+        end
+
+        if safe_skipped > 0 then
+            push_log('warn', ('Ignoring %d item(s) in Safe / Safe 2.'):format(safe_skipped))
+            push_log('warn', '  Those bags hold placed furniture, which cannot be moved.')
+            push_log('warn', '  Move anything you do want from there by hand, then retry.')
+        end
+
+        if #retrievable == 0 then
+            state.status = 'Retrieve Unused - nothing to move.'
+            push_log('ok', 'No unused slip-storable items outside Safe / Safe 2.')
+            layout()
+            return
+        end
+
+        local groups, order = {}, {}
+        for _, item in ipairs(retrievable) do
+            local sid = item.slip_item_id
+            if not groups[sid] then
+                groups[sid] = { label = item.slip_label, items = {} }
+                order[#order+1] = sid
+            end
+            local g = groups[sid].items
+            g[#g+1] = item
+        end
+        table.sort(order, function(a, b) return groups[a].label < groups[b].label end)
+
+        local free = inventory_free()
+        local moves = {}
+        local out_of_space = false
+
+        local function plan_group(sid)
+            local g = groups[sid]
+            local eligible, blocked, in_inv = {}, {}, 0
+
+            for _, item in ipairs(g.items) do
+                if item.bag_id == 0 then
+                    in_inv = in_inv + 1
+                elseif bag_accessible(item.bag_id) then
+                    eligible[#eligible+1] = item
+                else
+                    blocked[#blocked+1] = item
+                end
+            end
+
+            if #eligible == 0 and in_inv == 0 then
+                for _, item in ipairs(blocked) do
+                    push_log('warn', ('Skipped %s'):format(item.name))
+                    push_log('warn', ('  %s is not reachable from here.'):format(item.bag_name))
+                end
+                return false
+            end
+
+            local slip_move = nil
+            if not result.slips_in_inv[sid] then
+                local found = portermod.find_slip_slot(sid)
+                if not found then
+                    push_log('err', ('%s is not in your possession.'):format(g.label))
+                    push_log('err', '  Buy it from the Porter Moogle, then retry.')
+                    return false
+                elseif not bag_accessible(found.bag_id) then
+                    push_log('warn', ('%s is in your %s, which you cannot')
+                        :format(g.label, found.bag_name))
+                    push_log('warn', '  reach from here. Move it, then retry.')
+                    return false
+                end
+                slip_move = found
+            end
+
+            local slip_cost = slip_move and 1 or 0
+            local need = slip_cost + ((#eligible > 0) and 1 or 0)
+            if free < need then
+                push_log('warn', ('Not enough inventory room for %s right now.'):format(g.label))
+                return false
+            end
+
+            if slip_move then
+                moves[#moves+1] = {
+                    kind = 'slip', name = g.label, item_id = sid,
+                    bag_id = slip_move.bag_id, bag_name = slip_move.bag_name,
+                    slot = slip_move.slot,
+                }
+                free = free - 1
+            end
+
+            for _, item in ipairs(eligible) do
+                if free <= 0 then
+                    out_of_space = true
+                    break
+                end
+                moves[#moves+1] = {
+                    kind = 'item', name = item.name, item_id = item.item_id,
+                    bag_id = item.bag_id, bag_name = item.bag_name,
+                    slot = item.slot,
+                }
+                free = free - 1
+            end
+
+            for _, item in ipairs(blocked) do
+                push_log('warn', ('Skipped %s'):format(item.name))
+                push_log('warn', ('  %s is not reachable from here.'):format(item.bag_name))
+            end
+
+            return out_of_space
+        end
+
+        for _, sid in ipairs(order) do
+            if free <= 0 then
+                out_of_space = true
+                break
+            end
+            if plan_group(sid) then break end
+        end
+
+        if out_of_space then
+            push_log('warn', 'Inventory filled up. Deposit these, then run this again.')
+        end
+
+        if #moves == 0 then
+            state.status = 'Retrieve Unused - nothing could be moved.'
+            push_log('warn', 'Nothing was moved. See the notes above.')
+            layout()
+            return
+        end
+
+        push_log('msg', ('Moving %d thing(s) into inventory...'):format(#moves))
+        state.status = 'Retrieving unused items...'
+        layout()
+
+        local idx = 1
+        local moved_items, moved_slips, skipped_locked = 0, 0, 0
+
+        local function step()
+            if idx > #moves then
+                push_log('ok', ('Moved %d item(s) and %d slip(s) to inventory.')
+                    :format(moved_items, moved_slips))
+                if skipped_locked > 0 then
+                    push_log('warn', ('%d thing(s) were in use and left alone.'):format(skipped_locked))
+                end
+                push_log('msg', '')
+                push_log('msg', 'Now switch to the DEPOSIT ITEMS tab and press')
+                push_log('msg', 'SCAN INVENTORY FOR DEPOSIT, then DEPOSIT.')
+                state.status = ('Retrieved %d item(s). Use the DEPOSIT ITEMS tab.')
+                    :format(moved_items)
+                state.last_validate = nil
+                layout()
+                return
+            end
+
+            local mv = moves[idx]
+            idx = idx + 1
+
+            local movable, why = portermod.slot_movable(mv.bag_id, mv.slot, mv.item_id)
+            if not movable then
+                skipped_locked = skipped_locked + 1
+                if why == 'inuse' then
+                    push_log('warn', ('Skipped %s'):format(mv.name))
+                    push_log('warn', '  In use right now, so it cannot be moved.')
+                    push_log('warn', '  Placed furniture must be removed first.')
+                else
+                    push_log('warn', ('Skipped %s (no longer in %s).'):format(mv.name, mv.bag_name))
+                end
+                coroutine.schedule(step, 0.2)
+                return
+            end
+
+            local move_ok, move_err = pcall(windower.ffxi.move_item, mv.bag_id, 0, mv.slot, 1)
+            if move_ok then
+                if mv.kind == 'slip' then
+                    moved_slips = moved_slips + 1
+                else
+                    moved_items = moved_items + 1
+                end
+                push_log('msg', ('Moved: %s (from %s)'):format(mv.name, mv.bag_name))
+            else
+                push_log('err', ('Failed to move %s: %s'):format(mv.name, tostring(move_err)))
+            end
+
+            coroutine.schedule(step, 0.6)
+        end
+
+        step()
+    end
+
     -- Attach actions
     local action_map = {
         identify       = do_identify,
@@ -1372,6 +2004,8 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         retrieve_store = do_retrieve_store,
         check_compat   = do_check_compat,
         deposit_slips  = do_deposit_slips,
+        validate_slips = do_validate_slips,
+        retrieve_unused= do_retrieve_unused,
         toggle         = function()
             state.collapsed = not state.collapsed
             layout()
@@ -1387,10 +2021,31 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
 
     local function update_hover(mx, my)
         state.hover = nil
+        state.hover_tab = nil
+        state.hover_sw = nil
+        if dock.dual() then
+            for i, sw in ipairs(SW_DEFS) do
+                local x, y, w, h = Rect.dock_tab(i)
+                if Rect.point_in(mx, my, x, y, w, h) then
+                    state.hover_sw = sw.id
+                    return
+                end
+            end
+        end
+        if state.collapsed then return end
         for _, def in ipairs(BTN_DEFS) do
-            local x, y, w, h = Rect.button(def)
+            if btn_active(def) then
+                local x, y, w, h = Rect.button(def)
+                if Rect.point_in(mx, my, x, y, w, h) then
+                    state.hover = def.id
+                    return
+                end
+            end
+        end
+        for i = 1, #TAB_DEFS do
+            local x, y, w, h = Rect.tab(i)
             if Rect.point_in(mx, my, x, y, w, h) then
-                state.hover = def.id
+                state.hover_tab = i
                 return
             end
         end
@@ -1410,14 +2065,46 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         return true
     end
 
-    local function click_buttons(mx, my)
-        for _, def in ipairs(BTN_DEFS) do
-            local x, y, w, h = Rect.button(def)
+    local function select_tab(i)
+        if state.tab == i then return true end
+        state.tab = i
+        state.hover = nil
+        layout()
+        return true
+    end
+
+    local function click_dock(mx, my)
+        if not dock.dual() then return false end
+        for i, sw in ipairs(SW_DEFS) do
+            local x, y, w, h = Rect.dock_tab(i)
             if Rect.point_in(mx, my, x, y, w, h) then
-                if def.action then def.action() end
+                dock.set_active(sw.id)
                 return true
             end
         end
+        return false
+    end
+
+    local function click_buttons(mx, my)
+        for _, def in ipairs(BTN_DEFS) do
+            if def.toggle or (not state.collapsed and btn_active(def)) then
+                local x, y, w, h = Rect.button(def)
+                if Rect.point_in(mx, my, x, y, w, h) then
+                    if def.action then def.action() end
+                    return true
+                end
+            end
+        end
+
+        if state.collapsed then return false end
+
+        for i = 1, #TAB_DEFS do
+            local x, y, w, h = Rect.tab(i)
+            if Rect.point_in(mx, my, x, y, w, h) then
+                return select_tab(i)
+            end
+        end
+
         -- Scrollbar arrows
         local x, y, w, h = Rect.file_sb_upbtn()
         if Rect.point_in(mx, my, x, y, w, h) then return scroll_file_by(-1) end
@@ -1460,6 +2147,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
 
         state.selected_set[abs] = not state.selected_set[abs] or nil
         state.last_identify = nil
+        state.last_validate = nil
         state.selected_index = abs
         ensure_selection_visible()
         layout()
@@ -1595,7 +2283,12 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         end
 
         if type == 1 then -- left down
+            if click_dock(x, y)         then return true end
             if click_buttons(x, y)      then return true end
+            if state.collapsed then
+                if begin_drag(x, y) then return true end
+                return
+            end
             if click_file_prio(x, y)    then return true end
             if click_file_list(x, y)    then return true end
             if begin_drag(x, y)         then return true end
@@ -1626,32 +2319,64 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         state.hover            = nil
         state.last_identify    = nil
         state.last_compat      = nil
+        state.last_validate    = nil
 
         -- Redirect util messages to this panel's log while porter UI is active.
         _saved_ui_logger = util._get_ui_logger and util._get_ui_logger() or nil
         util.set_ui_logger(function(level, s) push_log(level, s) end)
 
+        state.tab = 1
         clear_log()
         push_log('msg', 'Porter Moogle detected nearby.')
         push_log('msg', '')
-        push_log('msg', 'How to use:')
-        push_log('msg', '  1. Check one or more GearSwap lua files below.')
-        push_log('msg', '  2. Press RETRIEVAL SCAN to identify gear stored on slips.')
-        push_log('msg', '  3. Choose a retrieve action:')
+        push_log('msg', 'Pick a tab above. Each tab has its own steps.')
         push_log('msg', '')
-        push_log('msg', '  RETRIEVE    — Withdraw items to inventory only.')
-        push_log('msg', '  RETR+FILL   — Retrieve, then move into free wardrobe slots.')
-        push_log('msg', '  RETR+STORE  — Retrieve, then store in Satchel/Case/Sack.')
+        push_log('ok',  'RETRIEVE ITEMS  (tab 1)')
+        push_log('msg', '  Step 1 - Scan Luas for Missing')
+        push_log('msg', '    Lists gear your ticked lua(s) need that is')
+        push_log('msg', '    currently sitting on a Porter Mog Slip.')
+        push_log('msg', '  Step 2 - Pick how to bring it back:')
+        push_log('msg', '    Retrieve Missing - to inventory only.')
+        push_log('msg', '    RETR+FILL - then into free wardrobe slots.')
+        push_log('msg', '    RETR+STORE - then into Satchel/Case/Sack.')
         push_log('msg', '')
-        push_log('msg', '  Or deposit items INTO slips:')
-        push_log('msg', '  DEPOSIT SCAN   — Scan inventory for slip-compatible items.')
-        push_log('msg', '  DEPOSIT  — Store those items into their slips.')
+        push_log('ok',  'DEPOSIT ITEMS  (tab 2)')
+        push_log('msg', '  Step 1 - Scan Inventory for Deposit')
+        push_log('msg', '    Lists items a slip will accept.')
+        push_log('msg', '  Step 2 - Deposit')
+        push_log('msg', '    Stores those items onto their slips.')
+        push_log('msg', '')
+        push_log('ok',  'VALIDATE SLIPS  (tab 3)')
+        push_log('msg', '  Validate All Slips')
+        push_log('msg', '    Searches every bag, wardrobe and container you')
+        push_log('msg', '    own for gear a slip can hold, then reports')
+        push_log('msg', '    which slip takes it and where it is now.')
+        push_log('msg', '    Select which lua\'s items not to consider')
+        push_log('msg', '    using the list below.')
+            push_log('msg', '    Step 1 is a report only; nothing is moved.')
+        push_log('msg', '  Step 2 - Retrieve Unused Items and Slips')
+        push_log('msg', '    Moves each unused item AND its slip into your')
+        push_log('msg', '    inventory, so you can deposit them right away.')
+        push_log('msg', '    Satchel, Sack, Case and Wardrobes 1-8 are always')
+        push_log('msg', '    reachable; in the Mog Garden every bag is. Step 1')
+        push_log('msg', '    marks anything out of reach right now with')
+        push_log('msg', '    [inaccessible - skipped].')
+        push_log('msg', '    Safe and Safe 2 are never pulled from - they hold')
+        push_log('msg', '    placed furniture that cannot be moved. Step 1')
+        push_log('msg', '    marks those items [SAFE - skipped]. Slips stored')
+        push_log('msg', '    in Safe / Safe 2 are still fetched normally.')
+        push_log('msg', '    If an item and its slip will not both fit, it')
+        push_log('msg', '    skips that pair and carries on with the rest.')
+        push_log('msg', '    Missing slips are named so you can buy them from')
+        push_log('msg', '    the Porter Moogle, then retry.')
+        push_log('msg', '    Then use the DEPOSIT ITEMS tab to store them.')
         refresh_file_list()
         layout()
     end
 
     function pui.hide()
         UI.visible = false
+        dock.set_available('porter', false)
         state.dragging         = false
         state.file_sb_dragging = false
         state.log_sb_dragging  = false
@@ -1675,6 +2400,10 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
     end
 
     function pui.is_visible() return UI.visible end
+
+    function pui.is_active() return UI.visible and dock.is_active('porter') end
+
+    dock.register('porter', function() layout() end)
 
     -- ==========================================================================
     -- Mog House detection (to avoid overlap with main UI)
@@ -1706,7 +2435,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         _last_check = now
 
         -- Never show while in Mog House (main UI handles that).
-        if is_mog_house() then
+        if is_mog_house() and not dock.is_mog_garden() then
             if UI.visible then pui.hide() end
             return
         end
@@ -1717,6 +2446,7 @@ return function(res, util, config, planner, portermod, scanmod, execmod, bags, p
         elseif not npc and UI.visible and not portermod.is_busy() then
             pui.hide()
         end
+        dock.set_available('porter', UI.visible)
     end
 
     -- ==========================================================================

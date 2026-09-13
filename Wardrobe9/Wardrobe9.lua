@@ -32,7 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name = 'wardrobe9'
 _addon.author = 'Broguypal'
-_addon.version = '2.4.3'
+_addon.version = '2.5.0'
 
 local res = require('resources')
 local extdata = require('extdata')
@@ -55,10 +55,11 @@ local validate = load_local('w9_validate.lua')(res, util, config, bags, scan, pl
 local execmod  = load_local('w9_executor.lua')(res, extdata, util)
 local mousemod = load_local('w9_mouse.lua')
 local prefs    = load_local('w9_prefs.lua')(util, ADDON_PATH, PREFS_FILE)
-local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod, validate, prefs)
+local dock     = load_local('w9_dock.lua')(res)
+local ui       = load_local('w9_ui.lua')(res, util, config, scan, planner, execmod, mousemod, validate, prefs, dock)
 
 local porter    = load_local('w9_porter.lua')(res, util, config, slots, bags, scan, planner)
-local porter_ui = load_local('w9_porter_ui.lua')(res, util, config, planner, porter, scan, execmod, bags, prefs)
+local porter_ui = load_local('w9_porter_ui.lua')(res, util, config, planner, porter, scan, execmod, bags, prefs, dock)
 
 windower.register_event('incoming chunk', function(id, data, modified, injected, blocked)
     porter.on_incoming_chunk(id, data)
@@ -69,7 +70,7 @@ windower.register_event('prerender', function()
 end)
 
 windower.register_event('mouse', function(type, x, y, delta, blocked)
-    if porter_ui.is_visible() then
+    if porter_ui.is_visible() and dock.is_active('porter') then
         return porter_ui.on_mouse(type, x, y, delta, blocked)
     end
 end)

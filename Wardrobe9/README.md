@@ -17,7 +17,18 @@ Wardrobe9 has two interfaces that appear automatically:
     where you scan your bags, plan wardrobe moves, and execute them.
 
 -   **Porter Moogle panel** — Opens when you walk near a Porter Moogle.
-    This lets you retrieve gear stored on Porter Mog Slips.
+    Tabbed into Retrieve Items, Deposit Items, and Validate Slips.
+
+In your **Mog Garden** you have both at once: full Mog House storage
+access *and* a Porter Moogle. Walk up to the Porter Moogle there and a
+pair of switcher tabs — **WARDROBE9** and **PORTER** — appear in the
+title bar of whichever panel is showing. Click either to swap between
+them. Only one panel is on screen at a time, so they never overlap.
+
+Approaching the Porter Moogle switches you to the PORTER panel
+automatically; walking away returns you to WARDROBE9 and the switcher
+tabs disappear. Everywhere else behaves exactly as before — one panel,
+no tabs.
 
 Both panels start collapsed (just a title bar) to stay out of your way.
 Click the **[+]** button on the right side to expand, or **[-]** to
@@ -65,18 +76,26 @@ collapse again. You can drag the title bar to reposition either panel.
 The Porter Moogle panel appears when you're near a Porter Moogle and
 disappears when you walk away.
 
-### Step-by-Step
+The panel is split into three tabs. Selecting a tab shows only that
+tab's buttons and hides the others, so the steps for what you're doing
+are always the only thing on screen.
+
+The Lua file list at the bottom is shared by all three tabs.
+
+### Tab 1 — Retrieve Items
+
+The default tab. Pulls gear off your slips.
 
 1.  **Select your Lua file(s)** — Same file list as the Mog House panel.
 
-2.  **SCAN SLIPS** — Identifies which gear from your Lua files is stored
-    on Porter Mog Slips. Shows you which slips are needed and whether
-    they're in your inventory.
+2.  **Scan Luas for Missing** — Identifies which gear from your selected
+    Lua files is stored on Porter Mog Slips. Shows which slips are
+    needed and whether they're in your inventory.
 
 3.  **Choose how to retrieve:**
 
-    -   **RETRIEVE** — Pulls items from the Porter Moogle into your
-        inventory.
+    -   **Retrieve Missing** — Pulls items from the Porter Moogle into
+        your inventory.
 
     -   **RETR+FILL** — Retrieves items, then moves them into your
         wardrobes automatically.
@@ -85,11 +104,74 @@ disappears when you walk away.
         Satchel, Mog Case, or Mog Sack (the portable bags you can
         access outside your Mog House).
 
-**Note:** Your Porter Mog Slips must be in your inventory before you can
-retrieve items. SCAN SLIPS will warn you if any slips are stored
-elsewhere.
+### Tab 2 — Deposit Items
 
-------------------------------------------------------------------------
+Puts gear onto your slips.
+
+1.  **Scan Inventory for Deposit** — Scans your inventory for items that
+    a Porter Mog Slip will accept, and reports which slip takes each one.
+
+2.  **Deposit** — Stores those items onto their slips.
+
+### Tab 3 — Validate Slips
+
+A report only. Nothing is moved.
+
+-   **Validate All Slips** — Searches *every* container you own —
+    inventory, all eight wardrobes, Safe, Safe 2, Storage, Locker,
+    Satchel, Sack and Case — for gear that a Porter Mog Slip is able to
+    hold. For each match it reports which slip takes the item, where the
+    item currently is, and where that slip currently is.
+
+    Items referenced by the Lua files you tick in the list below are
+    **excluded**, so gear you actually use won't be suggested. Use the
+    file list to select which Lua's items *not* to consider. With no
+    Lua checked, every match is listed, including gear you use.
+	
+	Rows that the retrieve step won't be able to act on are marked
+
+    -   `[SAFE - skipped]` — the item is in Safe or Safe 2.
+    -   `[inaccessible - skipped]` — the item is in a bag you can't open
+        from where you're currently standing.
+    -   `^ slip inaccessible - skipped` — printed under a slip's header
+        when the slip itself is somewhere you can't reach.
+
+    A count of each appears in the summary line at the top of the
+    report and again as an explanation at the bottom.
+
+-   **Retrieve Unused Items and Slips** — Takes the report above and
+    moves each unused item *and* its matching slip into your inventory,
+    ready to deposit.
+
+    Satchel, Sack, Case and Wardrobes 1 through 8 are reachable
+    anywhere. Storage and Locker become reachable inside the Mog
+    Garden.
+	
+	**Safe and Safe 2 are never pulled from**, even in the Mog Garden.
+    Those bags hold your placed Mog House furniture, which reports
+    itself as an ordinary item but cannot be moved and cannot be told
+    apart from loose gear. Anything you genuinely want out of Safe or
+    Safe 2 has to be moved by hand. Slips are the exception — a slip
+    stored in Safe or Safe 2 is still fetched normally, because a slip
+    is never placed furniture.
+
+    If an item and its slip won't both fit in your inventory, that pair
+    is skipped and the rest are still retrieved — it doesn't give up on
+    the first problem. When a pair can't be done you're told why:
+
+    -   The slip isn't in your possession — it names the slip so you can
+        buy it from the Porter Moogle, then retry.
+    -   The slip exists but sits in a bag you can't reach from where you
+        are — it names that bag.
+    -   The item itself is in an unreachable bag.
+    -   Your inventory filled up partway through.
+
+    When it finishes, switch to the **Deposit Items** tab and run its
+    two steps to store everything automatically.
+
+**Note:** Your Porter Mog Slips must be in your inventory before you can
+retrieve or deposit items. The scan buttons will warn you if any slips
+are stored elsewhere.
 
 ## Automatic Lua Parsing
 
@@ -137,6 +219,22 @@ PROTECTED_SLOT_GROUPS = {
 
 Available groups: `weapon`, `head`, `body`, `hands`, `legs`, `feet`,
 `neck`, `waist`, `back`, `ear`, `ring`, `ammo`.
+
+### Porter Ignore List
+
+Items the Porter Moogle panel should leave alone.
+
+This exists for gear you own and need but never reference in a Lua file,
+which would otherwise look like a safe candidate for storing away.
+
+All end stage Ambuscade weapons are enabled by default. Set any entry 
+to `false`, or delete the line, to stop ignoring it.
+
+```lua
+PORTER_IGNORE_ITEMS = {
+    ["Naegling"]    = true,
+},
+```
 
 ### Destination Wardrobes
 
@@ -204,7 +302,7 @@ appropriate slot group so the planner knows to look for it.
 
 ```lua
 CUSTOM_GEAR_VARIABLES = {
-    head = {"WAR_AF_HEAD"},
+    head = {"WAR_AF_HELM"},
     body = {},
     -- ...
 },
@@ -230,9 +328,14 @@ CUSTOM_GEAR_VARIABLES = {
     Mouse in the Windower launcher (Edit → Game tab → Hardware Mouse).
 
 -   Full wardrobe management (SCAN, PLAN, SWAP, FILL) requires being
-    inside your Mog House.
+    inside your Mog House or your Mog Garden.
 
--   Porter Mog Slips must be in your inventory before retrieval.
+-   Porter Mog Slips must be in your inventory before retrieving or
+    depositing.
+	
+-   Safe and Safe 2 are never used as a retrieve source for the porter
+    moogle. They hold placed Mog House furniture, which can't be 
+	distinguished from stored gear.
 
 ------------------------------------------------------------------------
 

@@ -174,6 +174,55 @@ return function(res, util, config, slots, bags, scanmod, planner)
         return data
     end
 
+    local _ignore_set = nil
+    local _ignore_unknown = nil
+
+    local function ignore_set()
+        if _ignore_set then return _ignore_set end
+        _ignore_set = {}
+        local src = (config and config.PORTER_IGNORE_ITEMS) or {}
+        for k, v in pairs(src) do
+            local name = nil
+            if type(k) == 'string' and v == true then name = k
+            elseif type(k) == 'number' and type(v) == 'string' then name = v end
+            if name then
+                local key = util.lkey(util.trim(name))
+                if key ~= '' then _ignore_set[key] = name end
+            end
+        end
+        return _ignore_set
+    end
+
+    local function is_ignored(name)
+        if not name then return false end
+        return ignore_set()[util.lkey(util.trim(name))] ~= nil
+    end
+
+    function M.ignore_unknown_names()
+        if _ignore_unknown then return _ignore_unknown end
+        _ignore_unknown = {}
+        local known = {}
+        for _, entry in pairs(res.items) do
+            if entry and entry.en then
+                known[util.lkey(util.trim(entry.en))] = true
+                if entry.enl then known[util.lkey(util.trim(entry.enl))] = true end
+            end
+        end
+        for key, original in pairs(ignore_set()) do
+            if not known[key] then
+                _ignore_unknown[#_ignore_unknown+1] = original
+            end
+        end
+        table.sort(_ignore_unknown)
+        return _ignore_unknown
+    end
+
+    function M.ignore_count()
+        local n = 0
+        for _ in pairs(ignore_set()) do n = n + 1 end
+        return n
+    end
+
     local function find_slip_in_inventory(slip_item_id)
         local inv = windower.ffxi.get_items(0)
         if not inv or not inv.max then return nil end
@@ -222,6 +271,48 @@ return function(res, util, config, slots, bags, scanmod, planner)
             end
         end
         return nil
+    end
+
+    function M.find_slip_slot(slip_item_id)
+        if not windower or not windower.ffxi or not windower.ffxi.get_items then
+            return nil
+        end
+        for _, bag in ipairs(SEARCH_BAGS) do
+            local ok, contents = pcall(windower.ffxi.get_items, bag.id)
+            if ok and contents and contents.max then
+                for slot = 1, contents.max do
+                    local entry = contents[slot]
+                    if entry and entry.id == slip_item_id and entry.status == 0 then
+                        return { bag_id = bag.id, bag_name = bag.name, slot = slot }
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    function M.slot_movable(bag_id, slot, item_id)
+        if not windower or not windower.ffxi or not windower.ffxi.get_items then
+            return false, 'gone'
+        end
+        local ok, contents = pcall(windower.ffxi.get_items, bag_id)
+        if not ok or type(contents) ~= 'table' or not contents.max then
+            return false, 'gone'
+        end
+        if type(slot) ~= 'number' or slot < 1 or slot > contents.max then
+            return false, 'gone'
+        end
+        local entry = contents[slot]
+        if not entry or not entry.id or entry.id == 0 then
+            return false, 'gone'
+        end
+        if item_id and entry.id ~= item_id then
+            return false, 'gone'
+        end
+        if entry.status ~= 0 then
+            return false, 'inuse'
+        end
+        return true, nil
     end
 
     local function inventory_free_space()
@@ -307,10 +398,13 @@ return function(res, util, config, slots, bags, scanmod, planner)
         -- Cross-reference needed items with slip contents.
         local results = {}   -- { {name, group, item_id, slip_label, slip_item_id, slip_num, in_inventory} }
         local slip_ids_needed = {}  -- { [slip_item_id] = true }
+        local ignored_count = 0
 
         for key, info in pairs(merged) do
             local ids = name_to_ids[util.lkey(info.name)]
-            if ids then
+            if ids and is_ignored(info.name) then
+                ignored_count = ignored_count + 1
+            elseif ids then
                 for _, id in ipairs(ids) do
                     if on_slip[id] then
                         local s = on_slip[id]
@@ -361,6 +455,7 @@ return function(res, util, config, slots, bags, scanmod, planner)
             slips_in_inv     = slips_in_inv,
             slips_not_in_inv = slips_not_in_inv,
             free_space       = inventory_free_space(),
+            ignored_count    = ignored_count,
         }
     end
 
@@ -407,12 +502,16 @@ return function(res, util, config, slots, bags, scanmod, planner)
 
         local results = {}
         local slip_ids_needed = {}
+        local ignored_count = 0
 
         for slot = 1, inv.max do
             local entry = inv[slot]
             if entry and entry.id and entry.id ~= 0 and entry.status == 0 then
                 local slip_info = item_to_slip[entry.id]
-                if slip_info then
+                local r0 = res.items[entry.id]
+                if slip_info and is_ignored(r0 and r0.en) then
+                    ignored_count = ignored_count + 1
+                elseif slip_info then
                     local r = res.items[entry.id]
                     local name = r and r.en or tostring(entry.id)
                     results[#results+1] = {
@@ -450,6 +549,144 @@ return function(res, util, config, slots, bags, scanmod, planner)
             items            = results,
             slips_in_inv     = slips_in_inv,
             slips_not_in_inv = slips_not_in_inv,
+            ignored_count    = ignored_count,
+        }
+    end
+
+    local function build_item_to_slip()
+        local map = {}
+        for slip_num = 1, #slips_lib.storages do
+            local slip_item_id = slips_lib.storages[slip_num]
+            if slip_item_id then
+                local item_list = slips_lib.items[slip_item_id]
+                if type(item_list) == 'table' then
+                    local label = ('Slip %02d'):format(slip_num)
+                    for _, item_id in ipairs(item_list) do
+                        if item_id and item_id ~= 0 then
+                            map[item_id] = {
+                                slip_item_id = slip_item_id,
+                                slip_num     = slip_num,
+                                slip_label   = label,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        return map
+    end
+
+    function M.validate_all_slips(exclude_files)
+        if not slips_lib then
+            return nil, 'The slips library is not available. Ensure it is installed in Windower.'
+        end
+
+        if not slips_lib.items or not slips_lib.storages then
+            return nil, 'Slips library data not available (items/storages missing).'
+        end
+
+        local excluded_names = {}
+        local excluded_name_count = 0
+        local labels = {}
+
+        if type(exclude_files) == 'table' then
+            for _, f in ipairs(exclude_files) do
+                local needed, err = planner.extract_needed(f.rel)
+                if not needed then
+                    return nil, ('Error reading %s: %s'):format(tostring(f.rel), tostring(err))
+                end
+                labels[#labels+1] = f.label or f.rel
+                for _, info in pairs(needed) do
+                    local nk = util.lkey(util.trim(info.name or ''))
+                    if nk ~= '' and not excluded_names[nk] then
+                        excluded_names[nk] = true
+                        excluded_name_count = excluded_name_count + 1
+                    end
+                end
+            end
+        end
+
+        local item_to_slip = build_item_to_slip()
+
+        local slip_item_ids = {}
+        for slip_num = 1, #slips_lib.storages do
+            local sid = slips_lib.storages[slip_num]
+            if sid then slip_item_ids[sid] = true end
+        end
+
+        local results = {}
+        local slip_ids_found = {}
+        local skipped = 0
+        local ignored_count = 0
+        local bags_scanned = 0
+
+        for _, bag in ipairs(SEARCH_BAGS) do
+            local ok, contents = pcall(windower.ffxi.get_items, bag.id)
+            if ok and contents and contents.max and contents.max > 0 then
+                bags_scanned = bags_scanned + 1
+                for slot = 1, contents.max do
+                    local entry = contents[slot]
+                    if entry and entry.id and entry.id ~= 0
+                       and entry.status == 0
+                       and not slip_item_ids[entry.id] then
+                        local slip_info = item_to_slip[entry.id]
+                        if slip_info then
+                            local r = res.items[entry.id]
+                            local name = r and r.en or tostring(entry.id)
+                            local nk = util.lkey(util.trim(name))
+                            if is_ignored(name) then
+                                ignored_count = ignored_count + 1
+                            elseif excluded_names[nk] then
+                                skipped = skipped + 1
+                            else
+                                results[#results+1] = {
+                                    name         = name,
+                                    item_id      = entry.id,
+                                    bag_id       = bag.id,
+                                    bag_name     = bag.name,
+                                    slot         = slot,
+                                    count        = entry.count or 1,
+                                    slip_label   = slip_info.slip_label,
+                                    slip_item_id = slip_info.slip_item_id,
+                                    slip_num     = slip_info.slip_num,
+                                }
+                                slip_ids_found[slip_info.slip_item_id] = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        local slips_in_inv = {}
+        local slips_not_in_inv = {}
+        local slip_count = 0
+        for slip_item_id in pairs(slip_ids_found) do
+            slip_count = slip_count + 1
+            if find_slip_in_inventory(slip_item_id) then
+                slips_in_inv[slip_item_id] = true
+            else
+                local loc = find_slip_location(slip_item_id)
+                slips_not_in_inv[slip_item_id] = loc or true
+            end
+        end
+
+        table.sort(results, function(a, b)
+            if a.slip_label ~= b.slip_label then return a.slip_label < b.slip_label end
+            if a.bag_name ~= b.bag_name then return a.bag_name < b.bag_name end
+            return a.name < b.name
+        end)
+
+        return {
+            label               = table.concat(labels, ', '),
+            items               = results,
+            slips_in_inv        = slips_in_inv,
+            slips_not_in_inv    = slips_not_in_inv,
+            slip_count          = slip_count,
+            ignored_count       = ignored_count,
+            excluded_items      = skipped,
+            excluded_name_count = excluded_name_count,
+            bags_scanned        = bags_scanned,
         }
     end
 
