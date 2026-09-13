@@ -86,36 +86,41 @@ return function(res, extdata, util)
         local failed  = 0
         local skipped = 0
 
-        -- Last fired move, awaiting verification on the next tick.
-        local pending = nil
+        local MOVE_DELAY    = 0.3
+        local VERIFY_RETRIES = 6
 
-        -- Verify the previous move actually happened: its source slot should
-        -- no longer contain the item. The server drops invalid moves silently,
-        -- so this is the only way to know a move truly landed.
-        local function verify_pending()
-            if not pending then return end
-            local mv = pending
-            pending = nil
+        local inflight = {}
 
-            local cur = slot_item_key(mv.from_bag_id, mv.from_slot)
-            if cur and mv.item_key and cur == mv.item_key then
-                failed = failed + 1
-                util.err(('Move NOT accepted by server (%s): %s:slot%d -> %s (%s)')
-                    :format(
-                        tostring(mv.type),
-                        tostring(mv.from_bag_name),
-                        tonumber(mv.from_slot) or -1,
-                        tostring(mv.to_bag_name),
-                        tostring(mv.item_name)
-                    ))
-            else
-                moved = moved + 1
+        local function sweep_inflight()
+            local still = {}
+            for _, e in ipairs(inflight) do
+                local mv  = e.mv
+                local cur = slot_item_key(mv.from_bag_id, mv.from_slot)
+                if cur and mv.item_key and cur == mv.item_key then
+                    -- Source slot unchanged: either not landed yet, or refused.
+                    e.tries = e.tries - 1
+                    if e.tries > 0 then
+                        still[#still+1] = e
+                    else
+                        failed = failed + 1
+                        util.err(('Move NOT accepted by server (%s): %s:slot%d -> %s (%s)')
+                            :format(
+                                tostring(mv.type),
+                                tostring(mv.from_bag_name),
+                                tonumber(mv.from_slot) or -1,
+                                tostring(mv.to_bag_name),
+                                tostring(mv.item_name)
+                            ))
+                    end
+                else
+                    moved = moved + 1
+                end
             end
+            inflight = still
         end
 
-        local function finish()
+        local function report()
             executing = false
-            verify_pending()
             if failed == 0 and skipped == 0 then
                 util.msg(('Execution complete: %d moved.'):format(moved))
             else
@@ -124,11 +129,25 @@ return function(res, extdata, util)
             end
         end
 
+        local function finish()
+            if #inflight == 0 then
+                report()
+                return
+            end
+            sweep_inflight()
+            if #inflight == 0 then
+                report()
+            else
+                coroutine.schedule(finish, MOVE_DELAY)
+            end
+        end
+
         local i = 1
+        local src_recheck = 0
         local function step()
             if not executing then return end
 
-            verify_pending()
+            sweep_inflight()
 
             if i > #plan.moves then
                 finish()
@@ -136,29 +155,32 @@ return function(res, extdata, util)
             end
 
             local mv = plan.moves[i]
-            i = i + 1
 
-            -- Safety: verify the planned source slot still contains the expected item.
             if mv.item_key and mv.from_bag_id and mv.from_slot then
                 local cur = slot_item_key(mv.from_bag_id, mv.from_slot)
-                local retry_msg = 'Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.'
-                if cur and cur ~= mv.item_key then
+                if cur ~= mv.item_key then
+                    src_recheck = src_recheck + 1
+                    if src_recheck <= VERIFY_RETRIES then
+                        coroutine.schedule(step, MOVE_DELAY)
+                        return
+                    end
                     executing = false
-                    util.err(('ABORT: source slot changed before move %d. Expected "%s" but found "%s" at %s:slot%d')
-                        :format(i-1, tostring(mv.item_key), tostring(cur), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
-                    util.err(retry_msg)
-                    return
-                elseif not cur then
-                    executing = false
-                    util.err(('ABORT: source slot is empty/unknown before move %d. Expected "%s" at %s:slot%d')
-                        :format(i-1, tostring(mv.item_key), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
+                    local retry_msg = 'Re-run SCAN, then PLAN in the Mog House UI, then try EXEC again.'
+                    if cur then
+                        util.err(('ABORT: source slot changed before move %d. Expected "%s" but found "%s" at %s:slot%d')
+                            :format(i, tostring(mv.item_key), tostring(cur), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
+                    else
+                        util.err(('ABORT: source slot is empty/unknown before move %d. Expected "%s" at %s:slot%d')
+                            :format(i, tostring(mv.item_key), tostring(mv.from_bag_name), tonumber(mv.from_slot) or -1))
+                    end
                     util.err(retry_msg)
                     return
                 end
             end
 
-            -- Safety: skip moves whose destination bag has no free slot.
-            -- The server rejects these silently, so firing them is pointless.
+            src_recheck = 0
+            i = i + 1
+
             if mv.to_bag_id and bag_free(mv.to_bag_id) < 1 then
                 skipped = skipped + 1
                 util.warn(('SKIP move %d: destination %s is FULL. (%s stays in %s:slot%d)')
@@ -181,11 +203,10 @@ return function(res, extdata, util)
                         tostring(e)
                     ))
             else
-                pending = mv
+                inflight[#inflight+1] = { mv = mv, tries = VERIFY_RETRIES }
             end
 
-            -- Slight delay between moves to stay safe with server processing.
-            coroutine.schedule(step, 0.3)
+            coroutine.schedule(step, MOVE_DELAY)
         end
 
         step()
