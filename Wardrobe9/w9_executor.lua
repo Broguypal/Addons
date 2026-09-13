@@ -185,7 +185,7 @@ return function(res, extdata, util)
             end
 
             -- Slight delay between moves to stay safe with server processing.
-            coroutine.schedule(step, 0.6)
+            coroutine.schedule(step, 0.3)
         end
 
         step()
