@@ -29,7 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Failsafe'
 _addon.author  = 'Broguypal'
-_addon.version = '1.0.1'
+_addon.version = '1.0.2'
 
 require('pack')
 local res = require('resources')
@@ -177,11 +177,9 @@ end)
 windower.register_event('incoming text', function(original, modified, mode, modified_mode, blocked)
     if not job then return end
 
-    local line = type(modified) == 'string' and modified or original
-    if type(line) ~= 'string' then return end
-
     for _, pattern in ipairs(reject_lines) do
-        if line:find(pattern) then
+        if (type(original) == 'string' and original:find(pattern))
+        or (type(modified) == 'string' and modified:find(pattern)) then
             on_refused()
             return
         end
