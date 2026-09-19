@@ -35,7 +35,7 @@ require('pack')
 local res = require('resources')
 
 local max_attempts = 3
-local retry_delay  = 1.10
+local retry_delay  = 1.00
 local echo_timeout = 1.00
 
 local wait_messages = {[17] = true, [87] = true, [90] = true}
