@@ -13,17 +13,7 @@ refuses it? Failsafe presses it again for you.
 
 1. You use an ability (spell, job ability or weaponskill).
 2. It doesn't go off.
-3. Failsafe retries it, up to 3 attempts total, about a second apart.
-4. It resets completely if:
-   * you use another ability. That one becomes the one being watched, and the
-     old one is forgotten.
-   * all 4 attempts are used. Done, it stops.
-   * the ability goes off. Done, it stops.
-
-Only ever the last thing you tried. There is no queue, and nothing you've
-moved on from is retried.
-
-Runs silently. No commands, no messages, no settings file.
+3. Failsafe retries it, up to 3 attempts total, one second apart.
 
 ## Install
 
