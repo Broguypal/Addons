@@ -1,8 +1,8 @@
 # Failsafe
 
-Failsafe is a Windower addon for Final Fantasy XI that re-sends spells, weaponskills 
-and job abilities that are refused because you pressed them while in the middle of 
-another action.
+Failsafe is a Windower addon for Final Fantasy XI that re-sends spells, weaponskills, 
+items and job abilities that are refused because you pressed them while in the middle 
+of another action.
 
 # What is it?
 
