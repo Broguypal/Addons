@@ -29,7 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Failsafe'
 _addon.author  = 'Broguypal'
-_addon.version = '1.0.0'
+_addon.version = '1.0.1'
 
 require('pack')
 local res = require('resources')
@@ -48,6 +48,25 @@ local reject_lines = {
     'Unable to use item%.',
     'You must wait longer to perform that action%.',
 }
+
+do
+    local messages = res.action_messages
+    if messages then
+        for id, entry in pairs(messages) do
+            if type(id) == 'number' and type(entry) == 'table' then
+                local en = entry.en or entry.english
+                if type(en) == 'string' then
+                    for _, pattern in ipairs(reject_lines) do
+                        if en:find(pattern) then
+                            wait_messages[id] = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
 
 local kind_by_prefix = {
     ['/ma'] = 'spell',  ['/magic'] = 'spell',
@@ -156,7 +175,7 @@ windower.register_event('incoming chunk', function(id, original, modified, injec
 end)
 
 windower.register_event('incoming text', function(original, modified, mode, modified_mode, blocked)
-    if blocked or not job then return end
+    if not job then return end
 
     local line = type(modified) == 'string' and modified or original
     if type(line) ~= 'string' then return end
