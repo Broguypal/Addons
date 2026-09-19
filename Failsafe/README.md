@@ -6,12 +6,12 @@ another action.
 
 # What is it?
 
-Ever press a spell, weaponskill or job ability a split second too early and the game 
-refuses it? Failsafe presses it again for you.
+Ever press a spell, weaponskill, job ability, or item a split second too early and the 
+game refuses it? Failsafe presses it again for you.
 
 ## How it behaves
 
-1. You use an ability (spell, job ability or weaponskill).
+1. You use an ability (spell, job ability, weaponskill, or item).
 2. It doesn't go off.
 3. Failsafe retries it, up to 3 attempts total, one second apart.
 
