@@ -23,6 +23,6 @@ game refuses it? Failsafe presses it again for you.
 
 ## License
 
-CastStill is free to use and share under the BSD 3-Clause License.
+Failsafe is free to use and share under the BSD 3-Clause License.
 
 Copyright © 2026 Broguypal
