@@ -1,6 +1,6 @@
-# TrueTargetLock v1.1
+# TrueTargetLock v1.2
 
-TrueTargetLock is a Windower addon that automatically keeps your character facing your current target while you are engaged in combat.
+TrueTargetLock is a Windower addon that automatically keeps your character facing your current target.
 
 It helps track the monster if it moves, keeping you properly oriented so your attacks continue to connect.
 
@@ -14,35 +14,46 @@ This prevents common melee issues where auto-retarget selects a new monster but 
 - Tracks the monster if it moves around you
 - Works with FFXI’s native auto-retarget system
 - Prevents "not facing the target" attack failures
-- Only active while you are **engaged** and have a valid target
+- Configurable to work in or out of combat, with or without native target lock
 
 ---
 
-## Modes (v1.1)
+## Settings (v1.2)
 
-TrueTargetLock supports two operating modes that can be changed with commands and are saved between sessions.
-
-Your selected mode is stored in:
+TrueTargetLock has two toggles that are saved between sessions in:
 
     addons/TrueTargetLock/data/settings.xml
 
-and will persist across reloads and game restarts.
+### ⚔ Combat (Default: ON)
 
-### 🔒 Normal Mode (Default)
+    //truetargetlock combat on
+    //truetargetlock combat off
 
-    //truetargetlock normal
+- **ON**: Only active while you are **engaged**
+- **OFF**: Active in or out of combat
 
-- Turns your character only when **Target Lock (*) is ON**
-- Matches traditional FFXI behavior
-- Allows free turning when target lock is off
+### 🔒 Locked (Default: ON)
 
-### 🔁 Always Mode
+    //truetargetlock locked on
+    //truetargetlock locked off
 
-    //truetargetlock always
+- **ON**: Only active while **Target Lock (*)** is on
+- **OFF**: Active even when Target Lock is off
 
-- Always turns you toward your target while engaged
-- Works even if **Target Lock is OFF**
-- ⚠ You will not be able to turn away from your target while engaged
+Leaving off `on`/`off` toggles the current value. Use `//truetargetlock status` to see your current settings.
+
+### Combinations
+
+| Locked | Combat | Behavior |
+|--------|--------|----------|
+| ON  | ON  | Faces your target while engaged and locked on *(default, formerly Normal mode)* |
+| ON  | OFF | Faces anything or anyone you are locked onto, in or out of combat |
+| OFF | ON  | Always faces your target while engaged *(formerly Always mode)* ⚠ You cannot turn away while engaged |
+| OFF | OFF | Always faces whatever you currently have targeted ⚠ You cannot turn away from any target |
+
+If you have no target, the addon does nothing.
+
+Upgrading from v1.1: an existing `always` mode setting is automatically converted to `locked off`.
 
 ---
 
@@ -65,10 +76,11 @@ and will persist across reloads and game restarts.
 3. Engage a monster.
    The addon will automatically keep you facing your current target.
 
-4. (Optional) Change modes:
+4. (Optional) Adjust settings:
 
-       //truetargetlock normal
-       //truetargetlock always
+       //truetargetlock combat on|off
+       //truetargetlock locked on|off
+       //truetargetlock status
 
 ---
 
