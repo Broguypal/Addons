@@ -29,13 +29,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Failsafe'
 _addon.author  = 'Broguypal'
-_addon.version = '1.0.2'
+_addon.version = '1.0.3'
 
 require('pack')
 local res = require('resources')
 
 local max_attempts = 3
-local retry_delay  = 1.00
+local retry_delay  = 0.65
 local echo_timeout = 1.00
 
 local wait_messages = {[17] = true, [87] = true, [90] = true}
