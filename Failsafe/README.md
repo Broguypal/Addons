@@ -13,7 +13,7 @@ game refuses it? Failsafe presses it again for you.
 
 1. You use an ability (spell, job ability, weaponskill, or item).
 2. It doesn't go off.
-3. Failsafe retries it, up to 3 attempts total, one second apart.
+3. Failsafe retries it, up to 3 attempts total.
 
 ## Install
 
