@@ -29,14 +29,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _addon.name    = 'Failsafe'
 _addon.author  = 'Broguypal'
-_addon.version = '1.0.3'
+_addon.version = '1.0.4'
+_addon.commands = {'failsafe'}
 
 require('pack')
 local res = require('resources')
+local config = require('config')
 
 local max_attempts = 3
 local retry_delay  = 0.65
 local echo_timeout = 1.00
+local settings = config.load({notify = true})
 
 local wait_messages = {[17] = true, [87] = true, [90] = true}
 
@@ -80,6 +83,8 @@ local kind_by_prefix = {
 }
 
 local resource_by_kind = {spell = 'spells', ws = 'weapon_skills', ja = 'job_abilities'}
+
+local label_by_kind = {spell = 'Spell', ws = 'Weaponskill', ja = 'Job ability', item = 'Item', ranged = 'Ranged attack'}
 
 local resource_by_category = {
     [4]  = 'spells',        [8]  = 'spells',
@@ -137,6 +142,8 @@ local function on_refused()
     end
 
     job.fire_at = os.clock() + retry_delay
+
+    if settings.notify then windower.add_to_chat(207, label_by_kind[job.kind] .. ' was unsuccessful. Retrying.') end
 end
 
 windower.register_event('outgoing text', function(original, modified, blocked)
@@ -224,6 +231,14 @@ windower.register_event('prerender', function()
     echo = {cmd = job.cmd, deadline = now + echo_timeout}
 
     windower.send_command('input ' .. job.cmd)
+end)
+
+windower.register_event('addon command', function(cmd)
+    if cmd and cmd:lower() == 'notify' then
+        settings.notify = not settings.notify
+        settings:save('all')
+        windower.add_to_chat(207, 'Failsafe retry messages ' .. (settings.notify and 'on' or 'off') .. '.')
+    end
 end)
 
 windower.register_event('zone change', function() job = nil; echo = nil end)
