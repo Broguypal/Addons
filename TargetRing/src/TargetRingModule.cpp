@@ -1289,10 +1289,8 @@ bool adopt_device(
 
     std::uintptr_t device_vtable = 0;
     std::memcpy(&device_vtable, device, sizeof(device_vtable));
-    if (!vtable_in_d3d8_module(device_vtable, modules, count)) {
-        return false;
-    }
-    if (!plausible_device_vtable(device_vtable)) {
+    if (!vtable_in_d3d8_module(device_vtable, modules, count)
+        && !plausible_device_vtable(device_vtable)) {
         return false;
     }
 
