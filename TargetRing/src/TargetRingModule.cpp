@@ -1436,10 +1436,17 @@ bool install_hook() {
     return true;
 }
 
-// The patch is shared and is never removed. The slot is released in DllMain.
+// The patch is shared and is never removed. 3.0.3 (SceneHook v2.1): the slot
+// is released here, with the wait for a frame still inside the stub, since
+// this runs from Lua's unload (and //tr off) where waiting is allowed; before,
+// the slot was only disabled here and released in DllMain, which can't wait.
+// install_hook() registers again on the next start.
 bool remove_hook() {
     g_ring_count = 0;
-    scenehook_set_enabled(g_bus, g_bus_slot, false);
+    if (g_bus && g_bus_slot >= 0) {
+        scenehook_unregister(g_bus, g_bus_slot, true);
+        g_bus_slot = -1;
+    }
     std::snprintf(g_status, sizeof(g_status), "stopped");
     return true;
 }

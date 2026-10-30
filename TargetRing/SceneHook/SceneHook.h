@@ -163,12 +163,17 @@ inline void SCENEHOOK_ALIGN_STACK __fastcall owner_stub(void* renderer, void* un
         return;
     }
 
+    // v2.1: in_flight covers the whole stub, the trampoline call included. The
+    // game's own draw_scene runs for a whole frame and returns INTO this stub,
+    // so a module unloading while the render thread was in there returned
+    // into unmapped code; scenehook_unregister's drain only waited for the
+    // callbacks. Now it waits for the frame.
+    InterlockedIncrement(&bus->in_flight);
+
     scenehook_stub_fn const original = bus->trampoline;
     if (original) {
         original(renderer, unused);
     }
-
-    InterlockedIncrement(&bus->in_flight);
 
     for (int i = 0; i < SCENEHOOK_MAX_CLIENTS; ++i) {
         SceneClient& client = bus->clients[i];
@@ -368,6 +373,14 @@ inline std::uintptr_t find_draw_scene(char const** reason) {
 
         std::uintptr_t const hit = scan_range(section_start, section_start + span);
         if (hit != 0) {
+            // v2.1: the prologue must be the only one of its kind, or a future
+            // build could have the first match be some other function.
+            if (scan_range(hit + 1, section_start + span) != 0) {
+                if (reason) {
+                    *reason = "draw_scene's prologue matches more than once in this build";
+                }
+                return 0;
+            }
             return hit;
         }
     }
@@ -531,8 +544,10 @@ inline void scenehook_unregister(SceneBus* bus, int slot, bool may_wait) {
 
     if (may_wait) {
         // Let any frame already inside a stub finish before the caller lets go
-        // of the module. Same-threaded in practice, so this returns at once.
-        for (int spin = 0; spin < 200
+        // of the module. The render thread is not the caller's (Windower runs
+        // addon Lua on its own thread), so this can really wait: up to a
+        // second, which covers a frame however slow the scene.
+        for (int spin = 0; spin < 1000
             && InterlockedCompareExchange(&bus->in_flight, 0, 0) != 0; ++spin) {
             Sleep(1);
         }
