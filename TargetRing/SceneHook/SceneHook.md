@@ -65,6 +65,21 @@ Stop drawing without leaving:
 scenehook_set_enabled(g_bus, g_slot, false);
 ```
 
+Leave, from your own shutdown (the function your Lua calls on `unload`), with
+the wait:
+
+```cpp
+if (g_bus && g_slot >= 0) {
+    scenehook_unregister(g_bus, g_slot, true);
+    g_slot = -1;
+}
+```
+
+`true` waits, up to a second, for a frame that is still inside the stub before
+your module can unmap (v2.1). Register again on your next start. Keep the
+`DllMain` call below as well: it is the backstop that runs however the addon
+goes away, and it cannot wait.
+
 Leave, from `DllMain`, unconditionally:
 
 ```cpp
@@ -80,7 +95,7 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
 **This call is the one that must not be skipped.** `DLL_PROCESS_DETACH` is the
 only teardown point guaranteed to run however your addon goes away — a normal
 unload, a force-unload, or a Lua error during unload — and it runs before your
-image is unmapped. Do not move it into an unload event handler. The `false`
+image is unmapped. Do not replace it with an unload event handler. The `false`
 argument means "do not wait": the loader lock is held there, so only lock-free
 stores are performed.
 
