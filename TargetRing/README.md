@@ -74,6 +74,14 @@ can be read. You do not need it to use TargetRing.
 The `SceneHook` folder is self-contained and reusable. Any addon that wants to
 draw in the 3D scene can copy it as-is; see `SceneHook/SceneHook.md`.
 
+## Changes in 3.0.3
+
+SceneHook v2.1: unloading or reloading TargetRing now waits for a frame that is
+still inside its draw hook before the module leaves memory, and the slot on the
+shared bus is released from TargetRing's own stop rather than only at unload.
+Fully compatible with addons still built against SceneHook v2.0 (same bus, same
+ABI); they just don't get the same protection for themselves until rebuilt.
+
 ## Changes in 3.0.0
 
 Rewritten hook handling: TargetRing no longer chains into or scans for other ring
