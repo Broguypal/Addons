@@ -74,6 +74,14 @@ can be read. You do not need it to use TargetRing.
 The `SceneHook` folder is self-contained and reusable. Any addon that wants to
 draw in the 3D scene can copy it as-is; see `SceneHook/SceneHook.md`.
 
+## Changes in 3.0.4
+
+Safer device lookup: when TargetRing searches the game's renderer for its
+Direct3D device, it now only calls into objects whose functions point at real
+code. Before, an object that only looked like a Direct3D object could send it
+to a garbage address and crash the game. This could happen without dgVoodoo,
+using Windows' own Direct3D 8.
+
 ## Changes in 3.0.3
 
 SceneHook v2.1: unloading or reloading TargetRing now waits for a frame that is
