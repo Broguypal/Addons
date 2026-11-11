@@ -284,6 +284,26 @@ void* vtable_slot(std::uintptr_t object, int index) {
     return reinterpret_cast<void*>(address);
 }
 
+bool code_at(void const* address) {
+    if (!address) {
+        return false;
+    }
+
+    MEMORY_BASIC_INFORMATION region {};
+    return VirtualQuery(address, &region, sizeof(region))
+        && region.State == MEM_COMMIT
+        && page_executable(region.Protect);
+}
+
+void* com_slot(std::uintptr_t object, int index) {
+    void* const fn = vtable_slot(object, index);
+    return code_at(fn) ? fn : nullptr;
+}
+
+bool com_shaped(std::uintptr_t object) {
+    return com_slot(object, 0) && com_slot(object, 1) && com_slot(object, 2);
+}
+
 using fn_get_device = long(__stdcall*)(void*, void**);
 using fn_release = unsigned long(__stdcall*)(void*);
 using fn_get_transform = long(__stdcall*)(void*, DWORD, D3DMATRIX*);
@@ -1168,7 +1188,7 @@ void release_com(void* object) {
         return;
     }
     auto release = reinterpret_cast<fn_release>(
-        vtable_slot(reinterpret_cast<std::uintptr_t>(object), 2));
+        com_slot(reinterpret_cast<std::uintptr_t>(object), 2));
     if (release) {
         release(object);
     }
@@ -1177,7 +1197,7 @@ void release_com(void* object) {
 bool query_interface(std::uintptr_t object, GUID const& iid, void*& out) {
     out = nullptr;
 
-    void* fn = vtable_slot(object, 0);
+    void* fn = com_slot(object, 0);
     if (!fn) {
         return false;
     }
@@ -1277,7 +1297,7 @@ bool candidate_at(
 
     std::uintptr_t vtable = 0;
     std::memcpy(&vtable, reinterpret_cast<void const*>(object), sizeof(vtable));
-    return vtable_in_d3d8_module(vtable, modules, count);
+    return vtable_in_d3d8_module(vtable, modules, count) && com_shaped(object);
 }
 
 bool adopt_device(
@@ -1374,7 +1394,7 @@ void acquire_device(std::uintptr_t renderer) {
             continue;
         }
 
-        void* get_device = vtable_slot(object, 3);
+        void* get_device = com_slot(object, 3);
         if (!get_device) {
             continue;
         }
